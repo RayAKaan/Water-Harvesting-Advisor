@@ -1,0 +1,1920 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Water Harvesting Advisor</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #eef1ee;
+        --ink: #101816;
+        --muted: #5e6864;
+        --panel: rgba(250, 251, 249, 0.92);
+        --panel-strong: rgba(255, 255, 255, 0.96);
+        --accent: #1c6f66;
+        --accent-2: #caa472;
+        --line: #dfe4df;
+        --shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+      }
+      * { box-sizing: border-box; }
+      html, body, #app { height: 100%; }
+      body {
+        margin: 0;
+        font-family: "Iowan Old Style", "Palatino Linotype", "Georgia", serif;
+        color: var(--ink);
+        background: radial-gradient(1200px 700px at 0% 0%, #f0ece4 0%, transparent 60%),
+                    radial-gradient(900px 600px at 100% 0%, #dfe9e6 0%, transparent 55%),
+                    var(--bg);
+        overflow: hidden;
+      }
+      #app {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      #viewport { position: absolute; inset: 0; }
+      #ui { position: absolute; inset: 0; pointer-events: none; }
+      .topbar {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        right: 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        pointer-events: none;
+      }
+      .brand {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 14px;
+        box-shadow: var(--shadow);
+        pointer-events: auto;
+      }
+      .brand h1 { margin: 0; font-size: 1.15rem; letter-spacing: 0.4px; }
+      .brand p { margin: 0; font-size: 0.8rem; color: var(--muted); }
+      .viewbar {
+        margin-left: auto;
+        display: flex;
+        gap: 8px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 6px;
+        box-shadow: var(--shadow);
+        pointer-events: auto;
+      }
+      .vb {
+        border: none;
+        background: transparent;
+        padding: 6px 10px;
+        border-radius: 8px;
+        font-size: 0.82rem;
+        cursor: pointer;
+        color: var(--muted);
+        font-family: "Segoe UI", Tahoma, sans-serif;
+      }
+      .vb.on { background: #0f1b18; color: #e6efe9; }
+      .panels {
+        position: absolute;
+        left: 16px;
+        bottom: 16px;
+        top: 90px;
+        width: 360px;
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        gap: 12px;
+        pointer-events: auto;
+      }
+      .panel {
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        box-shadow: var(--shadow);
+      }
+      h2 { margin: 0 0 10px; font-size: 1rem; }
+      label {
+        display: block;
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin: 8px 0 6px;
+      }
+      input, select, button, textarea {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        font-size: 0.9rem;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+      }
+      button {
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        cursor: pointer;
+        margin-top: 8px;
+      }
+      button.secondary { background: var(--accent-2); color: #2b241a; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .muted { color: var(--muted); font-size: 0.8rem; }
+      .status { margin-top: 6px; font-size: 0.85rem; }
+      pre {
+        background: #0e1412;
+        color: #e7efe9;
+        padding: 10px;
+        border-radius: 10px;
+        max-height: 100%;
+        overflow: auto;
+      }
+      #labels {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 30;
+      }
+      .l3 {
+        position: absolute;
+        pointer-events: none;
+        z-index: 30;
+        transform: translate(-50%, -100%);
+        background: rgba(2, 6, 14, 0.88);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        padding: 4px 10px 4px 8px;
+        border-radius: 5px;
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        font-family: "JetBrains Mono", "Consolas", monospace;
+        font-size: 10px;
+        letter-spacing: 0.3px;
+        color: #c8d0dc;
+        white-space: nowrap;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
+        transition: opacity 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .l3::after {
+        content: "";
+        position: absolute;
+        bottom: -5px;
+        left: 50%;
+        transform: translateX(-50%);
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 5px solid rgba(2, 6, 14, 0.88);
+      }
+      .l3 .dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        animation: labelDotPulse 2.5s ease infinite;
+        flex-shrink: 0;
+      }
+      @keyframes labelDotPulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.4; transform: scale(0.7); }
+      }
+      .l3.loc  { border-left: 2px solid #60a5fa; }
+      .l3.loc .dot  { background: #60a5fa; box-shadow: 0 0 6px #60a5fa; }
+      .l3.river { border-left: 2px solid #22d3ee; }
+      .l3.river .dot { background: #22d3ee; box-shadow: 0 0 6px #22d3ee; }
+      .l3.lake { border-left: 2px solid #38bdf8; }
+      .l3.lake .dot { background: #38bdf8; box-shadow: 0 0 6px #38bdf8; }
+      .l3.peak { border-left: 2px solid #f59e0b; }
+      .l3.peak .dot { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; }
+      .l3.coast { border-left: 2px solid #34d399; }
+      .l3.coast .dot { background: #34d399; box-shadow: 0 0 6px #34d399; }
+      #loading {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(6, 10, 12, 0.35);
+        color: #f1f4f0;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        font-size: 1rem;
+        z-index: 40;
+        pointer-events: all;
+      }
+      @media (max-width: 1100px) {
+        .panels { width: 300px; }
+      }
+      @media (max-width: 900px) {
+        .panels {
+          position: absolute;
+          left: 12px;
+          right: 12px;
+          width: auto;
+          top: auto;
+          bottom: 12px;
+          grid-template-rows: auto auto auto;
+          max-height: 70%;
+          overflow: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="viewport"></div>
+      <div id="ui">
+        <div class="topbar">
+          <div class="brand">
+            <h1>Water Harvesting Advisor</h1>
+            <p>Terrain-driven planning with live climate context</p>
+          </div>
+          <div class="viewbar">
+            <button class="vb on" data-view="overview">Overview</button>
+            <button class="vb" data-view="property">Property</button>
+            <button class="vb" data-view="rivers">Rivers</button>
+            <button class="vb" data-view="data">Data</button>
+            <button class="vb" data-view="sky">Sky</button>
+          </div>
+        </div>
+
+        <div class="panels">
+          <section class="panel">
+            <h2>1) Location</h2>
+            <label for="city">City</label>
+            <select id="city">
+              <option value="">Select a city</option>
+              {% for city in cities %}
+                <option value="{{ city }}">{{ city }}</option>
+              {% endfor %}
+            </select>
+            <div class="row">
+              <div>
+                <label for="lat">Latitude</label>
+                <input id="lat" type="number" step="0.0001" placeholder="e.g. 12.9716" />
+              </div>
+              <div>
+                <label for="lon">Longitude</label>
+                <input id="lon" type="number" step="0.0001" placeholder="e.g. 77.5946" />
+              </div>
+            </div>
+            <p class="muted">City overrides lat/lon if provided.</p>
+            <button id="gpsBtn" class="secondary">Use GPS</button>
+            <button id="loadGeo">Load Terrain + Weather</button>
+            <div id="geoStatus" class="status"></div>
+          </section>
+
+          <section class="panel">
+            <h2>2) Site Inputs</h2>
+            <div class="row">
+              <div>
+                <label for="roof_area">Roof Area (m^2)</label>
+                <input id="roof_area" type="number" min="0" step="1" value="120" />
+              </div>
+              <div>
+                <label for="surface">Roof Surface</label>
+                <select id="surface">
+                  <option value="concrete">Concrete</option>
+                  <option value="metal">Metal</option>
+                  <option value="tile">Tile</option>
+                  <option value="asphalt">Asphalt</option>
+                  <option value="gravel">Gravel</option>
+                  <option value="soil">Soil</option>
+                  <option value="grass">Grass</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label for="land_area">Open Land Area (m^2)</label>
+                <input id="land_area" type="number" min="0" step="1" value="250" />
+              </div>
+              <div>
+                <label for="land_type">Land Type</label>
+                <select id="land_type">
+                  <option value="open">Open</option>
+                  <option value="garden">Garden</option>
+                  <option value="paved">Paved</option>
+                  <option value="driveway">Driveway</option>
+                  <option value="compacted">Compacted</option>
+                  <option value="sandy">Sandy</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label for="people">People</label>
+                <input id="people" type="number" min="0" step="1" value="4" />
+              </div>
+              <div>
+                <label for="soil">Soil Type</label>
+                <select id="soil">
+                  <option value="loamy">Loamy</option>
+                  <option value="sandy">Sandy</option>
+                  <option value="laterite">Laterite</option>
+                  <option value="clay_loam">Clay Loam</option>
+                  <option value="clay">Clay</option>
+                  <option value="rocky">Rocky</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label for="ac_units">AC Units</label>
+                <input id="ac_units" type="number" min="0" step="1" value="2" />
+              </div>
+              <div>
+                <label for="ac_hrs">AC Hours / Day</label>
+                <input id="ac_hrs" type="number" min="0" step="0.5" value="6" />
+              </div>
+            </div>
+            <label for="ac_mos">AC Months / Year</label>
+            <input id="ac_mos" type="number" min="0" max="12" step="1" value="6" />
+            <label>
+              <input id="kitchen" type="checkbox" checked />
+              Include kitchen usage
+            </label>
+            <button id="runAnalysis" class="secondary">Run Analysis</button>
+            <div id="analysisStatus" class="status"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Output</h2>
+            <p class="muted">Results update after each action. Raw JSON is shown.</p>
+            <pre id="output">{}</pre>
+          </section>
+        </div>
+        <div id="labels"></div>
+      </div>
+      <div id="loading">Loading...</div>
+    </div>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.1/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.1/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+      const SCALE = 0.08;
+      const canvasRoot = document.getElementById("viewport");
+      const labelsRoot = document.getElementById("labels");
+      const loadingEl = document.getElementById("loading");
+
+      let scene, camera, renderer, ctrl;
+      let terrainMesh = null;
+      let terrainGrid = null;
+      let terrainGS = 0;
+      let terrainCellSize = 1;
+      let terrainHalf = 1;
+      let terrainMinE = 0;
+      let terrainMaxE = 0;
+      let terrainRange = 1;
+      let terrainExag = 1;
+      let waterData = null;
+      let weatherData = null;
+      let skyMat = null;
+
+      let contourLineGroup = null;
+      let riverGroup = null;
+      let riverFlowSystems = [];
+      let lakeGroup = null;
+      let lakeMeshes = [];
+      let cloudGroup = null;
+      let cloudData = null;
+      let rainSystem = null;
+      let atmosphericParticles = null;
+      let propertyGroup = null;
+      let catchmentMesh = null;
+      let dataVizGroup = null;
+      let labels = [];
+
+      const clock = new THREE.Clock();
+      let elapsed = 0;
+      let cameraAnim = null;
+
+      initScene();
+      animate();
+
+      function initScene() {
+        scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x88aacc, 0.0012);
+
+        const w = canvasRoot.clientWidth || window.innerWidth;
+        const h = canvasRoot.clientHeight || window.innerHeight;
+        camera = new THREE.PerspectiveCamera(50, w / h, 0.5, 2000);
+        camera.position.set(100, 75, 130);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(w, h);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        canvasRoot.appendChild(renderer.domElement);
+
+        ctrl = new OrbitControls(camera, renderer.domElement);
+        ctrl.enableDamping = true;
+        ctrl.dampingFactor = 0.06;
+        ctrl.minDistance = 5;
+        ctrl.maxDistance = 500;
+        ctrl.maxPolarAngle = Math.PI / 2.05;
+        ctrl.target.set(0, 5, 0);
+        ctrl.update();
+
+        const sun = new THREE.DirectionalLight(0xfff5e0, 1.3);
+        sun.position.set(150, 100, 80);
+        sun.castShadow = true;
+        sun.shadow.mapSize.set(4096, 4096);
+        sun.shadow.camera.left = -250;
+        sun.shadow.camera.right = 250;
+        sun.shadow.camera.top = 250;
+        sun.shadow.camera.bottom = -250;
+        sun.shadow.camera.near = 1;
+        sun.shadow.camera.far = 600;
+        sun.shadow.bias = -0.0003;
+        sun.shadow.normalBias = 0.02;
+        scene.add(sun);
+
+        const fill = new THREE.DirectionalLight(0x6688bb, 0.3);
+        fill.position.set(-100, 50, -80);
+        scene.add(fill);
+
+        const hemi = new THREE.HemisphereLight(0x7eb4d4, 0x3a5530, 0.5);
+        scene.add(hemi);
+
+        const ambient = new THREE.AmbientLight(0x304060, 0.25);
+        scene.add(ambient);
+
+        const rim = new THREE.DirectionalLight(0xffddaa, 0.15);
+        rim.position.set(-60, 30, -100);
+        scene.add(rim);
+
+        buildSky();
+
+        window.addEventListener("resize", onResize);
+        document.querySelectorAll(".vb").forEach(btn => {
+          btn.addEventListener("click", () => flyToView(btn.dataset.view));
+        });
+      }
+
+      function onResize() {
+        const w = canvasRoot.clientWidth || window.innerWidth;
+        const h = canvasRoot.clientHeight || window.innerHeight;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+      }
+
+      function setStatus(el, text, ok) {
+        el.textContent = text;
+        el.style.color = ok ? "#1c6f66" : "#b2372b";
+      }
+
+      function showLoading(show, text) {
+        loadingEl.style.display = show ? "flex" : "none";
+        loadingEl.textContent = text || "Loading...";
+      }
+
+      function showOutput(data) {
+        document.getElementById("output").textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function postJson(url, payload) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || data.ok === false) {
+          const msg = data && data.error ? data.error : "Request failed";
+          throw new Error(msg);
+        }
+        return data;
+      }
+
+      document.getElementById("gpsBtn").addEventListener("click", () => {
+        const status = document.getElementById("geoStatus");
+        if (!navigator.geolocation) {
+          setStatus(status, "Geolocation not supported by browser.", false);
+          return;
+        }
+        setStatus(status, "Requesting location...", true);
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            document.getElementById("lat").value = pos.coords.latitude.toFixed(6);
+            document.getElementById("lon").value = pos.coords.longitude.toFixed(6);
+            setStatus(status, "Location ready. Load terrain to render.", true);
+          },
+          err => setStatus(status, err.message || "Unable to fetch location.", false),
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      });
+
+      document.getElementById("loadGeo").addEventListener("click", async () => {
+        const city = document.getElementById("city").value || null;
+        const lat = document.getElementById("lat").value;
+        const lon = document.getElementById("lon").value;
+        const status = document.getElementById("geoStatus");
+        setStatus(status, "Loading...", true);
+        showLoading(true, "Loading terrain and climate data...");
+        try {
+          const payload = {
+            city: city,
+            lat: lat ? Number(lat) : null,
+            lon: lon ? Number(lon) : null,
+          };
+          const data = await postJson("/api/geodata", payload);
+          weatherData = data.weather || null;
+          waterData = data.water || null;
+          if (data.terrain && data.weather) {
+            data.weather.terrain_bounds = {
+              lat_min: data.terrain.lat_min,
+              lat_max: data.terrain.lat_max,
+              lon_min: data.terrain.lon_min,
+              lon_max: data.terrain.lon_max,
+            };
+          }
+          rebuildWorld(data.terrain, waterData, weatherData);
+          showOutput(data);
+          setStatus(status, "Loaded terrain, water features, and climate data.", true);
+        } catch (err) {
+          setStatus(status, err.message, false);
+        } finally {
+          showLoading(false);
+        }
+      });
+
+      document.getElementById("runAnalysis").addEventListener("click", async () => {
+        const status = document.getElementById("analysisStatus");
+        if (!weatherData) {
+          setStatus(status, "Load location data first.", false);
+          return;
+        }
+        setStatus(status, "Running analysis...", true);
+        showLoading(true, "Running analysis...");
+        try {
+          const payload = {
+            weather: weatherData,
+            roof_area: Number(document.getElementById("roof_area").value || 0),
+            surface: document.getElementById("surface").value,
+            land_area: Number(document.getElementById("land_area").value || 0),
+            land_type: document.getElementById("land_type").value,
+            people: Number(document.getElementById("people").value || 0),
+            kitchen: document.getElementById("kitchen").checked,
+            ac_units: Number(document.getElementById("ac_units").value || 0),
+            ac_hrs: Number(document.getElementById("ac_hrs").value || 0),
+            ac_mos: Number(document.getElementById("ac_mos").value || 0),
+            soil: document.getElementById("soil").value,
+          };
+          const data = await postJson("/api/analyze", payload);
+          showOutput(data);
+          setStatus(status, "Analysis complete.", true);
+          if (terrainGrid) {
+            buildProperty(payload.roof_area);
+            buildDataViz(data.data.methods || []);
+          }
+        } catch (err) {
+          setStatus(status, err.message, false);
+        } finally {
+          showLoading(false);
+        }
+      });
+
+      function rebuildWorld(terrain, water, weather) {
+        clearWorld();
+        buildTerrain(terrain);
+        buildRivers((water && water.rivers) || []);
+        buildLakes((water && water.lakes) || []);
+        buildClouds(weather && weather.current ? weather.current.cloud : 0, weather && weather.current ? weather.current.wind_dir : 0);
+        buildRain(weather && weather.current ? weather.current.precip : 0, weather && weather.current ? weather.current.wind_dir : 0);
+        updateFog(weather && weather.current ? weather.current : {});
+        addPrimaryLabels(water, weather);
+        flyToView("overview");
+      }
+
+      function catmullRom(p0, p1, p2, p3, t) {
+        const t2 = t * t;
+        const t3 = t2 * t;
+        return 0.5 * (
+          (2 * p1) +
+          (-p0 + p2) * t +
+          (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+          (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+        );
+      }
+
+      function bicubicSample(grid, fi, fj, ti, tj) {
+        const rows = [];
+        for (let m = -1; m <= 2; m++) {
+          const r = clamp(fi + m, 0, grid.length - 1);
+          const p0 = grid[r][clamp(fj - 1, 0, grid[0].length - 1)];
+          const p1 = grid[r][clamp(fj, 0, grid[0].length - 1)];
+          const p2 = grid[r][clamp(fj + 1, 0, grid[0].length - 1)];
+          const p3 = grid[r][clamp(fj + 2, 0, grid[0].length - 1)];
+          rows.push(catmullRom(p0, p1, p2, p3, tj));
+        }
+        return catmullRom(rows[0], rows[1], rows[2], rows[3], ti);
+      }
+
+      function bicubicInterpolate(grid, newSize) {
+        const result = new Array(newSize);
+        for (let i = 0; i < newSize; i++) {
+          result[i] = new Array(newSize);
+          for (let j = 0; j < newSize; j++) {
+            const oi = i * (grid.length - 1) / (newSize - 1);
+            const oj = j * (grid[0].length - 1) / (newSize - 1);
+            const fi = Math.floor(oi);
+            const fj = Math.floor(oj);
+            const ti = oi - fi;
+            const tj = oj - fj;
+            result[i][j] = bicubicSample(grid, fi, fj, ti, tj);
+          }
+        }
+        return result;
+      }
+
+      function applyMicroNoise(grid, minE, maxE) {
+        const range = Math.max(maxE - minE, 1);
+        for (let i = 0; i < grid.length; i++) {
+          for (let j = 0; j < grid[0].length; j++) {
+            const t = (grid[i][j] - minE) / range;
+            if (t < 0.15 || t > 0.85) continue;
+            const n = fract(Math.sin(i * 127.1 + j * 311.7) * 43758.5453);
+            const amp = range * 0.015;
+            grid[i][j] += (n - 0.5) * amp;
+          }
+        }
+      }
+
+      function buildTerrain(td) {
+        const rawGrid = td.elevations;
+        const hiGrid = bicubicInterpolate(rawGrid, 112);
+        const GS = 112;
+        const cellSize = td.cell_m * SCALE * (rawGrid.length / GS);
+        const halfSize = cellSize * (GS - 1) / 2;
+
+        terrainGrid = hiGrid;
+        terrainGS = GS;
+        terrainCellSize = cellSize;
+        terrainHalf = halfSize;
+
+        let minE = Infinity, maxE = -Infinity;
+        for (let i = 0; i < GS; i++) {
+          for (let j = 0; j < GS; j++) {
+            const e = hiGrid[i][j];
+            if (e > 0) {
+              minE = Math.min(minE, e);
+              maxE = Math.max(maxE, e);
+            }
+          }
+        }
+        if (!Number.isFinite(minE)) { minE = 0; maxE = 100; }
+        const range = Math.max(maxE - minE, 1);
+
+        applyMicroNoise(hiGrid, minE, maxE);
+
+        let exag = 1.0;
+        if (range < 20) exag = 5.0;
+        else if (range < 50) exag = 3.5;
+        else if (range < 100) exag = 2.5;
+        else if (range < 200) exag = 1.8;
+        else if (range < 500) exag = 1.2;
+        else exag = 0.8;
+
+        terrainMinE = minE;
+        terrainMaxE = maxE;
+        terrainRange = range;
+        terrainExag = exag;
+
+        const vertCount = GS * GS;
+        const positions = new Float32Array(vertCount * 3);
+        const colors = new Float32Array(vertCount * 3);
+        const slopes = new Float32Array(vertCount);
+
+        for (let i = 0; i < GS; i++) {
+          for (let j = 0; j < GS; j++) {
+            const idx = i * GS + j;
+            const elev = hiGrid[i][j];
+            const y = (elev - minE) * SCALE * exag;
+            const x = j * cellSize - halfSize;
+            const z = -(i * cellSize - halfSize);
+            positions[idx * 3] = x;
+            positions[idx * 3 + 1] = y;
+            positions[idx * 3 + 2] = z;
+
+            const eN = i > 0 ? hiGrid[i - 1][j] : elev;
+            const eS = i < GS - 1 ? hiGrid[i + 1][j] : elev;
+            const eE = j < GS - 1 ? hiGrid[i][j + 1] : elev;
+            const eW = j > 0 ? hiGrid[i][j - 1] : elev;
+            const dzdx = (eE - eW) / (2 * cellSize / SCALE);
+            const dzdy = (eN - eS) / (2 * cellSize / SCALE);
+            slopes[idx] = Math.atan(Math.sqrt(dzdx * dzdx + dzdy * dzdy)) * 180 / Math.PI;
+
+            const t = (elev - minE) / range;
+            const col = getTerrainColor(t, slopes[idx], elev, i, j, GS);
+            colors[idx * 3] = col[0];
+            colors[idx * 3 + 1] = col[1];
+            colors[idx * 3 + 2] = col[2];
+          }
+        }
+
+        const indexCount = (GS - 1) * (GS - 1) * 6;
+        const indices = new Uint32Array(indexCount);
+        let ii = 0;
+        for (let i = 0; i < GS - 1; i++) {
+          for (let j = 0; j < GS - 1; j++) {
+            const a = i * GS + j;
+            const b = a + 1;
+            const c = a + GS;
+            const d = c + 1;
+            indices[ii++] = a; indices[ii++] = c; indices[ii++] = b;
+            indices[ii++] = b; indices[ii++] = c; indices[ii++] = d;
+          }
+        }
+
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+        geom.setIndex(new THREE.BufferAttribute(indices, 1));
+        geom.computeVertexNormals();
+
+        const mat = new THREE.MeshPhysicalMaterial({
+          vertexColors: true,
+          roughness: 0.88,
+          metalness: 0.02,
+          flatShading: false,
+          clearcoat: 0.02,
+          envMapIntensity: 0.3,
+          side: THREE.FrontSide,
+        });
+
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.receiveShadow = true;
+        mesh.castShadow = true;
+        scene.add(mesh);
+        terrainMesh = mesh;
+
+        buildTerrainSkirt(positions, GS, cellSize, halfSize);
+        buildContourLines(hiGrid, GS, cellSize, halfSize, minE, range, exag);
+
+        const wireMat = new THREE.MeshBasicMaterial({
+          wireframe: true,
+          color: 0x88ffaa,
+          transparent: true,
+          opacity: 0.018,
+          depthWrite: false,
+        });
+        const wireMesh = new THREE.Mesh(geom, wireMat);
+        scene.add(wireMesh);
+      }
+
+      function getTerrainColor(t, slopeDeg, elevation, row, col, gridSize) {
+        const ramp = [
+          { t: 0.00, r: 0.56, g: 0.70, b: 0.58 },
+          { t: 0.03, r: 0.48, g: 0.64, b: 0.42 },
+          { t: 0.06, r: 0.38, g: 0.58, b: 0.32 },
+          { t: 0.10, r: 0.30, g: 0.52, b: 0.22 },
+          { t: 0.15, r: 0.25, g: 0.48, b: 0.18 },
+          { t: 0.20, r: 0.22, g: 0.44, b: 0.16 },
+          { t: 0.28, r: 0.18, g: 0.38, b: 0.12 },
+          { t: 0.35, r: 0.16, g: 0.34, b: 0.10 },
+          { t: 0.42, r: 0.28, g: 0.40, b: 0.15 },
+          { t: 0.50, r: 0.42, g: 0.44, b: 0.22 },
+          { t: 0.58, r: 0.52, g: 0.46, b: 0.28 },
+          { t: 0.65, r: 0.48, g: 0.42, b: 0.32 },
+          { t: 0.72, r: 0.44, g: 0.40, b: 0.36 },
+          { t: 0.78, r: 0.50, g: 0.48, b: 0.44 },
+          { t: 0.84, r: 0.56, g: 0.54, b: 0.52 },
+          { t: 0.89, r: 0.62, g: 0.61, b: 0.60 },
+          { t: 0.93, r: 0.72, g: 0.72, b: 0.73 },
+          { t: 0.96, r: 0.82, g: 0.83, b: 0.86 },
+          { t: 0.98, r: 0.90, g: 0.91, b: 0.93 },
+          { t: 1.00, r: 0.96, g: 0.97, b: 0.98 },
+        ];
+        let r, g, b;
+        for (let k = 0; k < ramp.length - 1; k++) {
+          if (t >= ramp[k].t && t <= ramp[k + 1].t) {
+            const lt = (t - ramp[k].t) / (ramp[k + 1].t - ramp[k].t);
+            const st = lt * lt * (3 - 2 * lt);
+            r = ramp[k].r + (ramp[k + 1].r - ramp[k].r) * st;
+            g = ramp[k].g + (ramp[k + 1].g - ramp[k].g) * st;
+            b = ramp[k].b + (ramp[k + 1].b - ramp[k].b) * st;
+            break;
+          }
+        }
+        if (r === undefined) {
+          const last = ramp[ramp.length - 1];
+          r = last.r; g = last.g; b = last.b;
+        }
+
+        if (slopeDeg > 5) {
+          const slopeEffect = Math.min((slopeDeg - 5) / 35, 1.0);
+          const rockR = 0.38, rockG = 0.35, rockB = 0.30;
+          const blend = slopeEffect * 0.5;
+          r = r * (1 - blend) + rockR * blend;
+          g = g * (1 - blend) + rockG * blend;
+          b = b * (1 - blend) + rockB * blend;
+          const darken = 1 - slopeEffect * 0.25;
+          r *= darken; g *= darken; b *= darken;
+        }
+
+        const edgeX = Math.min(col, gridSize - 1 - col) / (gridSize * 0.15);
+        const edgeZ = Math.min(row, gridSize - 1 - row) / (gridSize * 0.15);
+        const edgeFade = Math.min(Math.min(edgeX, edgeZ), 1.0);
+        const edgeDarken = 0.5 + edgeFade * 0.5;
+        r *= edgeDarken; g *= edgeDarken; b *= edgeDarken;
+
+        const noise = fract(Math.sin(row * 127.1 + col * 311.7) * 43758.5453);
+        const variation = (noise - 0.5) * 0.04;
+        r = clamp(r + variation, 0, 1);
+        g = clamp(g + variation, 0, 1);
+        b = clamp(b + variation, 0, 1);
+        return [r, g, b];
+      }
+
+      function buildTerrainSkirt(positions, GS, cellSize, halfSize) {
+        const skirtDepth = 8;
+        const edges = [];
+        for (let j = 0; j < GS; j++) {
+          const idx = j;
+          edges.push({
+            x: positions[idx * 3], y: positions[idx * 3 + 1], z: positions[idx * 3 + 2],
+            bottomY: -skirtDepth
+          });
+        }
+        for (let i = 0; i < GS; i++) {
+          const idx = i * GS + (GS - 1);
+          edges.push({
+            x: positions[idx * 3], y: positions[idx * 3 + 1], z: positions[idx * 3 + 2],
+            bottomY: -skirtDepth
+          });
+        }
+        for (let j = GS - 1; j >= 0; j--) {
+          const idx = (GS - 1) * GS + j;
+          edges.push({
+            x: positions[idx * 3], y: positions[idx * 3 + 1], z: positions[idx * 3 + 2],
+            bottomY: -skirtDepth
+          });
+        }
+        for (let i = GS - 1; i >= 0; i--) {
+          const idx = i * GS;
+          edges.push({
+            x: positions[idx * 3], y: positions[idx * 3 + 1], z: positions[idx * 3 + 2],
+            bottomY: -skirtDepth
+          });
+        }
+        const skirtPositions = [];
+        const skirtColors = [];
+        for (let k = 0; k < edges.length; k++) {
+          const a = edges[k];
+          const b = edges[(k + 1) % edges.length];
+          const verts = [
+            a.x, a.y, a.z,
+            b.x, b.y, b.z,
+            a.x, a.bottomY, a.z,
+            a.x, a.bottomY, a.z,
+            b.x, b.y, b.z,
+            b.x, b.bottomY, b.z,
+          ];
+          skirtPositions.push(...verts);
+          for (let v = 0; v < 6; v++) {
+            const isBottom = (v === 2 || v === 3 || v === 5);
+            if (isBottom) skirtColors.push(0.12, 0.10, 0.08);
+            else skirtColors.push(0.25, 0.22, 0.18);
+          }
+        }
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute("position", new THREE.Float32BufferAttribute(skirtPositions, 3));
+        geom.setAttribute("color", new THREE.Float32BufferAttribute(skirtColors, 3));
+        geom.computeVertexNormals();
+        const mat = new THREE.MeshStandardMaterial({
+          vertexColors: true, roughness: 0.95, metalness: 0
+        });
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+      }
+
+      function buildContourLines(grid, GS, cellSize, halfSize, minE, range, exag) {
+        const numContours = 12;
+        const interval = range / numContours;
+        const contourGroup = new THREE.Group();
+        for (let level = 0; level < numContours; level++) {
+          const targetElev = minE + (level + 1) * interval;
+          const isMajor = (level + 1) % 3 === 0;
+          const segments = [];
+          for (let i = 0; i < GS - 1; i++) {
+            for (let j = 0; j < GS - 1; j++) {
+              const e00 = grid[i][j];
+              const e10 = grid[i][j + 1];
+              const e01 = grid[i + 1][j];
+              const e11 = grid[i + 1][j + 1];
+              const crossings = [];
+              function checkEdge(e1, e2, x1, z1, x2, z2) {
+                if ((e1 < targetElev && e2 >= targetElev) || (e2 < targetElev && e1 >= targetElev)) {
+                  const t = (targetElev - e1) / (e2 - e1);
+                  crossings.push({ x: x1 + (x2 - x1) * t, z: z1 + (z2 - z1) * t });
+                }
+              }
+              const x0 = j * cellSize - halfSize;
+              const x1 = (j + 1) * cellSize - halfSize;
+              const z0 = -(i * cellSize - halfSize);
+              const z1 = -((i + 1) * cellSize - halfSize);
+              checkEdge(e00, e10, x0, z0, x1, z0);
+              checkEdge(e10, e11, x1, z0, x1, z1);
+              checkEdge(e01, e11, x0, z1, x1, z1);
+              checkEdge(e00, e01, x0, z0, x0, z1);
+              if (crossings.length >= 2) {
+                const y = (targetElev - minE) * SCALE * exag + 0.08;
+                segments.push(
+                  new THREE.Vector3(crossings[0].x, y, crossings[0].z),
+                  new THREE.Vector3(crossings[1].x, y, crossings[1].z)
+                );
+              }
+            }
+          }
+          if (segments.length > 0) {
+            const geom = new THREE.BufferGeometry().setFromPoints(segments);
+            const mat = new THREE.LineBasicMaterial({
+              color: 0x000000,
+              transparent: true,
+              opacity: isMajor ? 0.12 : 0.05,
+              depthWrite: false,
+            });
+            const lines = new THREE.LineSegments(geom, mat);
+            contourGroup.add(lines);
+          }
+        }
+        scene.add(contourGroup);
+        contourLineGroup = contourGroup;
+      }
+
+      function buildRivers(rivers) {
+        if (!rivers || rivers.length === 0) return;
+        riverGroup = new THREE.Group();
+        riverFlowSystems = [];
+        const riverVertShader = `
+          uniform float uTime;
+          varying vec2 vUv;
+          varying vec3 vWorldPos;
+          varying float vEdgeDist;
+          void main() {
+            vUv = uv;
+            vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+            vEdgeDist = abs(uv.x - 0.5) * 2.0;
+            vec3 pos = position;
+            float wave = sin(uv.y * 40.0 + uTime * 3.0) * 0.03;
+            wave += sin(uv.y * 80.0 - uTime * 5.0) * 0.015;
+            pos += normal * wave;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+          }
+        `;
+        const riverFragShader = `
+          uniform float uTime;
+          uniform vec3 uBaseColor;
+          uniform vec3 uDeepColor;
+          uniform vec3 uFoamColor;
+          uniform vec3 uHighlightColor;
+          varying vec2 vUv;
+          varying vec3 vWorldPos;
+          varying float vEdgeDist;
+          float hash(vec2 p) {
+            return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+          }
+          float noise(vec2 p) {
+            vec2 i = floor(p);
+            vec2 f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            return mix(
+              mix(hash(i), hash(i + vec2(1,0)), f.x),
+              mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x),
+              f.y
+            );
+          }
+          void main() {
+            vec2 flowUV = vUv;
+            flowUV.y += uTime * 0.12;
+            float ripple1 = noise(flowUV * vec2(3.0, 15.0)) * 0.5 + 0.5;
+            float ripple2 = noise(flowUV * vec2(5.0, 25.0) + vec2(uTime * 0.3, 0.0)) * 0.5 + 0.5;
+            float ripple = ripple1 * 0.6 + ripple2 * 0.4;
+            float depth = 1.0 - vEdgeDist;
+            vec3 waterColor = mix(uBaseColor, uDeepColor, depth * 0.7);
+            float foam = smoothstep(0.7, 0.95, vEdgeDist);
+            foam *= ripple;
+            waterColor = mix(waterColor, uFoamColor, foam * 0.5);
+            float sparkle = pow(max(ripple2 * ripple1, 0.0), 12.0);
+            waterColor += uHighlightColor * sparkle * 0.4;
+            float flowLine = sin(flowUV.y * 80.0 + flowUV.x * 10.0) * 0.5 + 0.5;
+            flowLine = pow(flowLine, 4.0) * 0.08;
+            waterColor += vec3(flowLine);
+            float alpha = 0.65 + depth * 0.15 - foam * 0.1;
+            gl_FragColor = vec4(waterColor, alpha);
+          }
+        `;
+        for (const river of rivers) {
+          if (river.points.length < 2) continue;
+          const pts3d = river.points.map(p => {
+            const lc = geo2local(p[0], p[1]);
+            const ty = getTerrainY(lc.x, lc.z);
+            return new THREE.Vector3(lc.x, Math.max(ty + 0.15, 0.1), lc.z);
+          });
+          const curve = new THREE.CatmullRomCurve3(pts3d);
+          let width = 2.0;
+          if (river.type === "canal" || river.type === "drain") width = 1.2;
+          if (river.type === "stream") width = 0.8;
+          const segments = Math.min(pts3d.length * 8, 200);
+          const tubeGeom = new THREE.TubeGeometry(curve, segments, width, 8, false);
+          const tubeMat = new THREE.ShaderMaterial({
+            uniforms: {
+              uTime: { value: 0 },
+              uBaseColor: { value: new THREE.Color(0.08, 0.35, 0.55) },
+              uDeepColor: { value: new THREE.Color(0.03, 0.15, 0.30) },
+              uFoamColor: { value: new THREE.Color(0.70, 0.85, 0.95) },
+              uHighlightColor: { value: new THREE.Color(1.0, 0.95, 0.8) },
+            },
+            vertexShader: riverVertShader,
+            fragmentShader: riverFragShader,
+            transparent: true,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+          const mesh = new THREE.Mesh(tubeGeom, tubeMat);
+          riverGroup.add(mesh);
+          const flowCount = Math.min(pts3d.length * 12, 250);
+          const flowPositions = new Float32Array(flowCount * 3);
+          const flowTs = new Float32Array(flowCount);
+          const flowSpeeds = new Float32Array(flowCount);
+          const flowOffsets = new Float32Array(flowCount);
+          for (let k = 0; k < flowCount; k++) {
+            flowTs[k] = Math.random();
+            flowSpeeds[k] = 0.04 + Math.random() * 0.08;
+            flowOffsets[k] = (Math.random() - 0.5) * width * 0.6;
+            const pt = curve.getPoint(flowTs[k]);
+            flowPositions[k * 3] = pt.x + flowOffsets[k] * 0.5;
+            flowPositions[k * 3 + 1] = pt.y + 0.1;
+            flowPositions[k * 3 + 2] = pt.z + flowOffsets[k] * 0.5;
+          }
+          const pCanvas = document.createElement("canvas");
+          pCanvas.width = 32; pCanvas.height = 32;
+          const pCtx = pCanvas.getContext("2d");
+          const grad = pCtx.createRadialGradient(16, 16, 0, 16, 16, 16);
+          grad.addColorStop(0, "rgba(136,220,255,1)");
+          grad.addColorStop(0.4, "rgba(100,200,255,0.6)");
+          grad.addColorStop(1, "rgba(80,180,255,0)");
+          pCtx.fillStyle = grad;
+          pCtx.fillRect(0, 0, 32, 32);
+          const particleTex = new THREE.CanvasTexture(pCanvas);
+          const flowGeom = new THREE.BufferGeometry();
+          flowGeom.setAttribute("position", new THREE.BufferAttribute(flowPositions, 3));
+          const flowMat = new THREE.PointsMaterial({
+            size: 0.6,
+            map: particleTex,
+            transparent: true,
+            opacity: 0.7,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            color: 0x88ddff,
+          });
+          const flowPts = new THREE.Points(flowGeom, flowMat);
+          riverGroup.add(flowPts);
+          riverFlowSystems.push({
+            mesh,
+            material: tubeMat,
+            particles: flowPts,
+            curve,
+            ts: flowTs,
+            speeds: flowSpeeds,
+            offsets: flowOffsets,
+            count: flowCount,
+          });
+        }
+        scene.add(riverGroup);
+      }
+
+      function buildLakes(lakes) {
+        if (!lakes || lakes.length === 0) return;
+        lakeGroup = new THREE.Group();
+        lakeMeshes = [];
+        const lakeVertShader = `
+          uniform float uTime;
+          varying vec2 vUv;
+          varying vec3 vWorldPos;
+          void main() {
+            vUv = uv;
+            vec3 pos = position;
+            float wave1 = sin(pos.x * 1.2 + uTime * 0.8) * cos(pos.y * 0.9 + uTime * 0.5) * 0.12;
+            float wave2 = sin(pos.x * 3.0 - uTime * 1.2) * cos(pos.y * 2.5 + uTime * 0.9) * 0.04;
+            float wave3 = sin(pos.x * 7.0 + uTime * 2.5) * 0.015;
+            pos.z += wave1 + wave2 + wave3;
+            vWorldPos = (modelMatrix * vec4(pos, 1.0)).xyz;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+          }
+        `;
+        const lakeFragShader = `
+          uniform float uTime;
+          varying vec2 vUv;
+          varying vec3 vWorldPos;
+          float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float noise(vec2 p) {
+            vec2 i = floor(p);
+            vec2 f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(hash(i), hash(i + vec2(1,0)), f.x),
+                       mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x),
+                       f.y);
+          }
+          void main() {
+            vec3 deepColor = vec3(0.02, 0.10, 0.20);
+            vec3 shallowColor = vec3(0.06, 0.28, 0.42);
+            vec3 skyReflect = vec3(0.35, 0.55, 0.75);
+            vec2 center = vUv - 0.5;
+            float dist = length(center);
+            float depth = smoothstep(0.0, 0.45, 1.0 - dist * 1.8);
+            vec3 col = mix(shallowColor, deepColor, depth);
+            vec2 causticUV = vWorldPos.xz * 0.3 + uTime * 0.15;
+            float c1 = noise(causticUV * 4.0);
+            float c2 = noise(causticUV * 7.0 + 3.14);
+            float caustic = pow(max(c1 * c2, 0.0), 2.0) * 0.25;
+            col += vec3(caustic * 0.3, caustic * 0.6, caustic);
+            float fresnel = pow(1.0 - depth, 2.5);
+            col = mix(col, skyReflect, fresnel * 0.30);
+            vec2 sparkleUV = vWorldPos.xz * 2.0 + uTime * vec2(0.3, 0.2);
+            float sparkle = noise(sparkleUV * 8.0);
+            sparkle = pow(sparkle, 16.0) * 0.6;
+            col += vec3(sparkle);
+            float edgeAlpha = smoothstep(0.5, 0.35, dist);
+            float alpha = 0.70 * edgeAlpha + 0.15;
+            gl_FragColor = vec4(col, alpha);
+          }
+        `;
+        for (const lake of lakes) {
+          if (lake.points.length < 3) continue;
+          const localPts = lake.points.map(p => {
+            const lc = geo2local(p[0], p[1]);
+            return { x: lc.x, z: lc.z, ty: getTerrainY(lc.x, lc.z) };
+          });
+          const avgY = localPts.reduce((s, p) => s + p.ty, 0) / localPts.length;
+          const shape = new THREE.Shape();
+          shape.moveTo(localPts[0].x, localPts[0].z);
+          for (let k = 1; k < localPts.length; k++) shape.lineTo(localPts[k].x, localPts[k].z);
+          shape.closePath();
+          const geom = new THREE.ShapeGeometry(shape, 12);
+          geom.rotateX(-Math.PI / 2);
+          const mat = new THREE.ShaderMaterial({
+            uniforms: { uTime: { value: 0 } },
+            vertexShader: lakeVertShader,
+            fragmentShader: lakeFragShader,
+            transparent: true,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+          const mesh = new THREE.Mesh(geom, mat);
+          mesh.position.y = avgY + 0.1;
+          lakeGroup.add(mesh);
+          lakeMeshes.push({ mesh, material: mat });
+        }
+        scene.add(lakeGroup);
+      }
+
+      function buildSky() {
+        const skyVertShader = `
+          varying vec3 vWorldPosition;
+          void main() {
+            vec4 worldPos = modelMatrix * vec4(position, 1.0);
+            vWorldPosition = worldPos.xyz;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `;
+        const skyFragShader = `
+          uniform vec3 uSunDir;
+          uniform float uTime;
+          varying vec3 vWorldPosition;
+          vec3 atmosphere(vec3 dir) {
+            vec3 sunDir = normalize(uSunDir);
+            float sunDot = max(dot(dir, sunDir), 0.0);
+            float h = max(dir.y, 0.0);
+            vec3 zenith  = vec3(0.12, 0.22, 0.52);
+            vec3 midSky  = vec3(0.25, 0.45, 0.75);
+            vec3 horizon = vec3(0.55, 0.70, 0.88);
+            vec3 sky;
+            if (h > 0.3) sky = mix(midSky, zenith, smoothstep(0.3, 0.9, h));
+            else sky = mix(horizon, midSky, smoothstep(0.0, 0.3, h));
+            float hazeFactor = pow(1.0 - h, 8.0);
+            vec3 hazeColor = vec3(0.70, 0.78, 0.88);
+            sky = mix(sky, hazeColor, hazeFactor * 0.5);
+            float sunDisc = smoothstep(0.9994, 0.9998, sunDot);
+            sky += vec3(1.0, 0.97, 0.90) * sunDisc * 3.0;
+            float sunGlow = pow(sunDot, 4.0) * 0.12;
+            float sunHalo = pow(sunDot, 32.0) * 0.35;
+            float sunCore = pow(sunDot, 128.0) * 0.6;
+            sky += vec3(1.0, 0.9, 0.7) * (sunGlow + sunHalo + sunCore);
+            float sunInfluence = pow(sunDot, 2.0) * (1.0 - h) * 0.3;
+            sky += vec3(0.3, 0.15, 0.05) * sunInfluence;
+            if (dir.y < 0.0) {
+              float groundFade = pow(-dir.y, 0.4);
+              vec3 groundColor = vec3(0.40, 0.45, 0.50);
+              sky = mix(sky, groundColor, groundFade);
+            }
+            return sky;
+          }
+          void main() {
+            vec3 dir = normalize(vWorldPosition);
+            vec3 col = atmosphere(dir);
+            col = pow(col, vec3(0.97));
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `;
+        const skyGeom = new THREE.SphereGeometry(900, 32, 32);
+        skyMat = new THREE.ShaderMaterial({
+          uniforms: {
+            uSunDir: { value: new THREE.Vector3(0.5, 0.4, 0.3).normalize() },
+            uTime: { value: 0 },
+          },
+          vertexShader: skyVertShader,
+          fragmentShader: skyFragShader,
+          side: THREE.BackSide,
+          depthWrite: false,
+        });
+        const skyMesh = new THREE.Mesh(skyGeom, skyMat);
+        scene.add(skyMesh);
+      }
+
+      function buildClouds(cloudCover, windDir) {
+        cloudGroup = new THREE.Group();
+        cloudData = [];
+        const count = Math.max(2, Math.round((cloudCover || 0) / 6));
+        for (let c = 0; c < count; c++) {
+          const canvas = document.createElement("canvas");
+          const size = 256;
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext("2d");
+          const puffCount = 6 + Math.floor(Math.random() * 8);
+          for (let p = 0; p < puffCount; p++) {
+            const px = size * (0.2 + Math.random() * 0.6);
+            const py = size * (0.3 + Math.random() * 0.4);
+            const pr = size * (0.12 + Math.random() * 0.22);
+            const brightness = cloudCover > 70 ? 180 + Math.random() * 40 : 220 + Math.random() * 35;
+            const grad = ctx.createRadialGradient(px, py, 0, px, py, pr);
+            grad.addColorStop(0, `rgba(${brightness},${brightness},${brightness},0.7)`);
+            grad.addColorStop(0.5, `rgba(${brightness},${brightness},${brightness},0.3)`);
+            grad.addColorStop(1, `rgba(${brightness},${brightness},${brightness},0)`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, size, size);
+          }
+          const texture = new THREE.CanvasTexture(canvas);
+          const cloudW = 35 + Math.random() * 55;
+          const cloudH = 15 + Math.random() * 25;
+          const plane = new THREE.PlaneGeometry(cloudW, cloudH);
+          const mat = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            opacity: 0.45 + Math.random() * 0.25,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            fog: false,
+          });
+          const mesh = new THREE.Mesh(plane, mat);
+          const x = (Math.random() - 0.5) * 500;
+          const y = 55 + Math.random() * 35;
+          const z = (Math.random() - 0.5) * 500;
+          mesh.position.set(x, y, z);
+          cloudGroup.add(mesh);
+          const shadowGeom = new THREE.PlaneGeometry(cloudW * 0.7, cloudH * 0.7);
+          const shadowMat = new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            transparent: true,
+            opacity: 0.06,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+          const shadow = new THREE.Mesh(shadowGeom, shadowMat);
+          shadow.rotation.x = -Math.PI / 2;
+          shadow.position.set(x, 0.15, z);
+          cloudGroup.add(shadow);
+          cloudData.push({
+            mesh,
+            shadow,
+            baseX: x,
+            baseY: y,
+            baseZ: z,
+            speed: 1.5 + Math.random() * 3,
+            dx: Math.sin((windDir || 0) * Math.PI / 180),
+            dz: Math.cos((windDir || 0) * Math.PI / 180),
+          });
+        }
+        scene.add(cloudGroup);
+      }
+
+      function buildRain(precip, windDir) {
+        if (!precip || precip <= 0) {
+          buildAtmosphericParticles();
+          return;
+        }
+        const count = Math.min(Math.round(precip * 600), 5000);
+        const positions = new Float32Array(count * 6);
+        const velocities = new Float32Array(count);
+        const streakLength = precip > 5 ? 2.5 : 1.5;
+        const windDx = Math.sin((windDir || 0) * Math.PI / 180) * 0.3;
+        const windDz = Math.cos((windDir || 0) * Math.PI / 180) * 0.3;
+        for (let i = 0; i < count; i++) {
+          const x = (Math.random() - 0.5) * 300;
+          const y = Math.random() * 80;
+          const z = (Math.random() - 0.5) * 300;
+          positions[i * 6] = x;
+          positions[i * 6 + 1] = y + streakLength;
+          positions[i * 6 + 2] = z;
+          positions[i * 6 + 3] = x + windDx;
+          positions[i * 6 + 4] = y;
+          positions[i * 6 + 5] = z + windDz;
+          velocities[i] = 40 + Math.random() * 60;
+        }
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        const mat = new THREE.LineBasicMaterial({
+          color: 0x8899bb,
+          transparent: true,
+          opacity: 0.18,
+          depthWrite: false,
+        });
+        const rain = new THREE.LineSegments(geom, mat);
+        scene.add(rain);
+        rainSystem = { mesh: rain, velocities, count, streakLength, windDx, windDz };
+      }
+
+      function buildAtmosphericParticles() {
+        const count = 150;
+        const positions = new Float32Array(count * 3);
+        for (let i = 0; i < count; i++) {
+          positions[i * 3] = (Math.random() - 0.5) * 400;
+          positions[i * 3 + 1] = Math.random() * 60;
+          positions[i * 3 + 2] = (Math.random() - 0.5) * 400;
+        }
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        const mat = new THREE.PointsMaterial({
+          size: 0.3,
+          color: 0xaabbcc,
+          transparent: true,
+          opacity: 0.15,
+          depthWrite: false,
+        });
+        const pts = new THREE.Points(geom, mat);
+        scene.add(pts);
+        atmosphericParticles = { mesh: pts, count };
+      }
+
+      function updateFog(current) {
+        if (current && current.raining) {
+          scene.fog.color.setHex(0x667788);
+          scene.fog.density = 0.0022;
+        } else if (current && current.cloud > 70) {
+          scene.fog.color.setHex(0x8899aa);
+          scene.fog.density = 0.0015;
+        } else {
+          scene.fog.color.setHex(0x88aacc);
+          scene.fog.density = 0.0010;
+        }
+      }
+
+      function buildProperty(roofArea) {
+        if (propertyGroup) {
+          propertyGroup.traverse(c => {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) c.material.dispose();
+          });
+          scene.remove(propertyGroup);
+        }
+        propertyGroup = new THREE.Group();
+        const s = Math.sqrt(Math.max(roofArea, 10)) * 0.3;
+        const foundGeom = new THREE.BoxGeometry(s * 2.5, 0.2, s * 2);
+        const foundMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.9, metalness: 0.1 });
+        const foundation = new THREE.Mesh(foundGeom, foundMat);
+        foundation.position.y = 0.1;
+        foundation.receiveShadow = true;
+        propertyGroup.add(foundation);
+        const wallH = s * 0.7;
+        const wallGeom = new THREE.BoxGeometry(s * 1.2, wallH, s);
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0xe8e0d0, roughness: 0.92, metalness: 0.02 });
+        const walls = new THREE.Mesh(wallGeom, wallMat);
+        walls.position.y = 0.2 + wallH / 2;
+        walls.castShadow = true;
+        walls.receiveShadow = true;
+        propertyGroup.add(walls);
+        for (let w = 0; w < 3; w++) {
+          const winGeom = new THREE.PlaneGeometry(s * 0.18, s * 0.22);
+          const winMat = new THREE.MeshPhysicalMaterial({
+            color: 0x1a3050,
+            metalness: 0.8,
+            roughness: 0.1,
+            transparent: true,
+            opacity: 0.6,
+          });
+          const win = new THREE.Mesh(winGeom, winMat);
+          win.position.set(-s * 0.3 + w * s * 0.3, 0.2 + wallH * 0.55, s * 0.501);
+          propertyGroup.add(win);
+          const frameGeom = new THREE.BoxGeometry(s * 0.20, s * 0.24, 0.02);
+          const frameMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.5 });
+          const frame = new THREE.Mesh(frameGeom, frameMat);
+          frame.position.copy(win.position);
+          frame.position.z += 0.01;
+          propertyGroup.add(frame);
+        }
+        const roofH = s * 0.35;
+        const roofGeom = new THREE.ConeGeometry(s * 0.85, roofH, 4);
+        roofGeom.rotateY(Math.PI / 4);
+        const roofMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.8, metalness: 0.05 });
+        const roof = new THREE.Mesh(roofGeom, roofMat);
+        roof.position.y = 0.2 + wallH + roofH / 2;
+        roof.castShadow = true;
+        propertyGroup.add(roof);
+        const catchGeom = new THREE.PlaneGeometry(s * 1.0, s * 0.8);
+        const catchMat = new THREE.MeshBasicMaterial({
+          color: 0x3388ff,
+          transparent: true,
+          opacity: 0.2,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const catchment = new THREE.Mesh(catchGeom, catchMat);
+        catchment.rotation.x = -Math.PI / 2;
+        catchment.position.y = 0.2 + wallH + 0.1;
+        propertyGroup.add(catchment);
+        catchmentMesh = catchment;
+        const tankR = s * 0.2;
+        const tankH = s * 0.5;
+        const tankGeom = new THREE.CylinderGeometry(tankR, tankR, tankH, 16);
+        const tankMat = new THREE.MeshStandardMaterial({ color: 0x1a3a6a, roughness: 0.4, metalness: 0.3 });
+        const tank = new THREE.Mesh(tankGeom, tankMat);
+        tank.position.set(s * 1.0, 0.2 + tankH / 2, 0);
+        tank.castShadow = true;
+        propertyGroup.add(tank);
+        const lidGeom = new THREE.CylinderGeometry(tankR * 1.1, tankR * 1.1, 0.06, 16);
+        const lid = new THREE.Mesh(lidGeom, tankMat);
+        lid.position.set(s * 1.0, 0.2 + tankH + 0.03, 0);
+        propertyGroup.add(lid);
+        for (let r = 0; r < 3; r++) {
+          const ringGeom = new THREE.TorusGeometry(tankR + 0.02, 0.02, 6, 16);
+          const ring = new THREE.Mesh(ringGeom, new THREE.MeshStandardMaterial({ color: 0x224466 }));
+          ring.position.set(s * 1.0, 0.2 + tankH * (0.25 + r * 0.25), 0);
+          ring.rotation.x = Math.PI / 2;
+          propertyGroup.add(ring);
+        }
+        const pipePoints = [
+          new THREE.Vector3(s * 0.5, 0.2 + wallH, 0),
+          new THREE.Vector3(s * 0.65, 0.2 + wallH * 0.7, 0),
+          new THREE.Vector3(s * 0.85, 0.2 + tankH * 0.8, 0),
+          new THREE.Vector3(s * 1.0, 0.2 + tankH, 0),
+        ];
+        const pipeCurve = new THREE.CatmullRomCurve3(pipePoints);
+        const pipeGeom = new THREE.TubeGeometry(pipeCurve, 20, 0.04, 6, false);
+        const pipeMat = new THREE.MeshStandardMaterial({ color: 0x666666, metalness: 0.6, roughness: 0.3 });
+        const pipe = new THREE.Mesh(pipeGeom, pipeMat);
+        pipe.castShadow = true;
+        propertyGroup.add(pipe);
+        const yardGeom = new THREE.CircleGeometry(s * 2.2, 32);
+        yardGeom.rotateX(-Math.PI / 2);
+        const yardMat = new THREE.MeshStandardMaterial({ color: 0x2d5a1e, roughness: 0.95 });
+        const yard = new THREE.Mesh(yardGeom, yardMat);
+        yard.position.y = 0.02;
+        yard.receiveShadow = true;
+        propertyGroup.add(yard);
+        for (let t = 0; t < 4; t++) {
+          const tree = new THREE.Group();
+          const angle = (t / 4) * Math.PI * 2 + 0.3;
+          const dist = s * 1.4 + Math.random() * s * 0.5;
+          const tx = Math.cos(angle) * dist;
+          const tz = Math.sin(angle) * dist;
+          const trunkH = 1.5 + Math.random() * 1.5;
+          const trunkGeom = new THREE.CylinderGeometry(0.08, 0.12, trunkH, 6);
+          const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c3a1e, roughness: 0.95 });
+          const trunk = new THREE.Mesh(trunkGeom, trunkMat);
+          trunk.position.y = trunkH / 2;
+          trunk.castShadow = true;
+          tree.add(trunk);
+          const canopyCount = 2 + Math.floor(Math.random() * 2);
+          for (let c = 0; c < canopyCount; c++) {
+            const cr = 0.7 + Math.random() * 0.8;
+            const canopyGeom = new THREE.IcosahedronGeometry(cr, 1);
+            const canopyMat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 });
+            canopyMat.color.setHSL(0.28 + Math.random() * 0.1, 0.5 + Math.random() * 0.2, 0.22 + Math.random() * 0.12);
+            const canopy = new THREE.Mesh(canopyGeom, canopyMat);
+            canopy.position.set(
+              (Math.random() - 0.5) * 0.3,
+              trunkH + cr * 0.5 + c * 0.2,
+              (Math.random() - 0.5) * 0.3
+            );
+            canopy.castShadow = true;
+            tree.add(canopy);
+          }
+          tree.position.set(tx, 0, tz);
+          propertyGroup.add(tree);
+        }
+        const acGeom = new THREE.BoxGeometry(s * 0.2, s * 0.15, s * 0.12);
+        const acMat = new THREE.MeshStandardMaterial({ color: 0x999999, roughness: 0.5, metalness: 0.3 });
+        const ac = new THREE.Mesh(acGeom, acMat);
+        ac.position.set(-s * 0.6, 0.2 + wallH * 0.4, s * 0.51);
+        ac.castShadow = true;
+        propertyGroup.add(ac);
+        const terrainY = Math.max(getTerrainY(0, 0), 0.15);
+        propertyGroup.position.y = terrainY + 0.1;
+        scene.add(propertyGroup);
+      }
+
+      function buildDataViz(methods) {
+        if (dataVizGroup) {
+          dataVizGroup.traverse(c => {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) c.material.dispose();
+          });
+          scene.remove(dataVizGroup);
+        }
+        dataVizGroup = new THREE.Group();
+        const activeMethods = methods.filter(m => m.ok && m.annual > 0);
+        if (activeMethods.length === 0) return;
+        const maxAnnual = Math.max(...activeMethods.map(m => m.annual));
+        const barW = 3.5;
+        const gap = 1.5;
+        const totalW = activeMethods.length * (barW + gap) - gap;
+        const colors = [0x3b82f6, 0x10b981, 0x8b5cf6, 0x06b6d4, 0xf97316, 0xef4444];
+        const platGeom = new THREE.BoxGeometry(totalW + 8, 0.4, barW + 8);
+        const platMat = new THREE.MeshPhysicalMaterial({
+          color: 0x0a1628,
+          roughness: 0.1,
+          metalness: 0.7,
+          transparent: true,
+          opacity: 0.85,
+          clearcoat: 0.8,
+        });
+        const platform = new THREE.Mesh(platGeom, platMat);
+        platform.position.y = -0.2;
+        platform.receiveShadow = true;
+        dataVizGroup.add(platform);
+        activeMethods.forEach((method, i) => {
+          const h = Math.max((method.annual / maxAnnual) * 18, 0.5);
+          const color = colors[i % colors.length];
+          const barGeom = new THREE.BoxGeometry(barW, h, barW);
+          const barMat = new THREE.MeshPhysicalMaterial({
+            color,
+            roughness: 0.3,
+            metalness: 0.2,
+            transparent: true,
+            opacity: 0.75,
+            clearcoat: 0.5,
+          });
+          const bar = new THREE.Mesh(barGeom, barMat);
+          bar.position.x = i * (barW + gap) - totalW / 2 + barW / 2;
+          bar.position.y = h / 2;
+          bar.castShadow = true;
+          dataVizGroup.add(bar);
+          const capGeom = new THREE.BoxGeometry(barW + 0.2, 0.15, barW + 0.2);
+          const capMat = new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.9,
+          });
+          const cap = new THREE.Mesh(capGeom, capMat);
+          cap.position.x = bar.position.x;
+          cap.position.y = h + 0.075;
+          dataVizGroup.add(cap);
+          const glowGeom = new THREE.TorusGeometry(barW * 0.5, 0.08, 6, 16);
+          const glowMat = new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.3,
+          });
+          const glow = new THREE.Mesh(glowGeom, glowMat);
+          glow.rotation.x = -Math.PI / 2;
+          glow.position.x = bar.position.x;
+          glow.position.y = 0.05;
+          dataVizGroup.add(glow);
+        });
+        const offset = terrainHalf ? terrainHalf * 0.8 : 30;
+        dataVizGroup.position.set(-offset, Math.max(getTerrainY(-offset, -offset), 0.2) + 0.5, -offset);
+        dataVizGroup.rotation.y = 0.3;
+        scene.add(dataVizGroup);
+      }
+
+      function addLabel(text, pos3D, cssClass) {
+        const el = document.createElement("div");
+        el.className = `l3 ${cssClass}`;
+        el.innerHTML = `<span class="dot"></span>${text}`;
+        labelsRoot.appendChild(el);
+        labels.push({ el, pos: pos3D.clone() });
+      }
+
+      function updateLabels() {
+        const w2 = innerWidth / 2;
+        const h2 = innerHeight / 2;
+        for (const lb of labels) {
+          const projected = lb.pos.clone().project(camera);
+          if (projected.z > 1) {
+            lb.el.style.opacity = "0";
+            continue;
+          }
+          const x = (projected.x * w2) + w2;
+          const y = -(projected.y * h2) + h2;
+          const dist = camera.position.distanceTo(lb.pos);
+          const maxDist = 300;
+          const opacity = dist > maxDist ? 0 : Math.min(1, (maxDist - dist) / (maxDist * 0.3));
+          const scale = Math.max(0.7, Math.min(1.2, 100 / dist));
+          lb.el.style.left = `${x}px`;
+          lb.el.style.top = `${y}px`;
+          lb.el.style.opacity = `${opacity}`;
+          lb.el.style.transform = `translate(-50%, -100%) scale(${scale})`;
+        }
+      }
+
+      function addPrimaryLabels(water, wxData) {
+        labels.forEach(lb => lb.el.remove());
+        labels = [];
+        const terrainY = Math.max(getTerrainY(0, 0), 0.15);
+        addLabel("Location", new THREE.Vector3(0, terrainY + 5, 0), "loc");
+        const rivers = (water && water.rivers) || [];
+        rivers.forEach(r => {
+          if (r.name) {
+            const mid = r.points[Math.floor(r.points.length / 2)];
+            const lc = geo2local(mid[0], mid[1]);
+            const y = getTerrainY(lc.x, lc.z) + 3;
+            addLabel(`River: ${r.name}`, new THREE.Vector3(lc.x, y, lc.z), "river");
+          }
+        });
+        const lakes = (water && water.lakes) || [];
+        lakes.forEach(l => {
+          if (l.name) {
+            const avg = l.points.reduce((s, p) => [s[0] + p[0] / l.points.length, s[1] + p[1] / l.points.length], [0, 0]);
+            const lc = geo2local(avg[0], avg[1]);
+            const y = getTerrainY(lc.x, lc.z) + 3;
+            addLabel(`Lake: ${l.name}`, new THREE.Vector3(lc.x, y, lc.z), "lake");
+          }
+        });
+        if (terrainGrid) {
+          const peak = findHighestPoint();
+          addLabel(`${Math.round(terrainMaxE)}m`, peak, "peak");
+        }
+        if (wxData && wxData.coastal) {
+          addLabel("Coast", new THREE.Vector3(terrainHalf, 2, 0), "coast");
+        }
+      }
+
+      function findHighestPoint() {
+        let best = { x: 0, z: 0, y: 0 };
+        if (!terrainGrid) return new THREE.Vector3(0, 0, 0);
+        for (let i = 0; i < terrainGS; i++) {
+          for (let j = 0; j < terrainGS; j++) {
+            const elev = terrainGrid[i][j];
+            if (elev >= terrainMaxE) {
+              const x = j * terrainCellSize - terrainHalf;
+              const z = -(i * terrainCellSize - terrainHalf);
+              const y = (elev - terrainMinE) * SCALE * terrainExag;
+              best = { x, y, z };
+            }
+          }
+        }
+        return new THREE.Vector3(best.x, best.y, best.z);
+      }
+
+      function clearWorld() {
+        if (terrainMesh) {
+          terrainMesh.geometry.dispose();
+          terrainMesh.material.dispose();
+          scene.remove(terrainMesh);
+          terrainMesh = null;
+        }
+        if (riverGroup) {
+          riverGroup.traverse(c => {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) {
+              if (c.material.map) c.material.map.dispose();
+              c.material.dispose();
+            }
+          });
+          scene.remove(riverGroup);
+          riverGroup = null;
+          riverFlowSystems = [];
+        }
+        if (lakeGroup) {
+          lakeGroup.traverse(c => {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) c.material.dispose();
+          });
+          scene.remove(lakeGroup);
+          lakeGroup = null;
+          lakeMeshes = [];
+        }
+        if (cloudGroup) {
+          cloudGroup.traverse(c => {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) {
+              if (c.material.map) c.material.map.dispose();
+              c.material.dispose();
+            }
+          });
+          scene.remove(cloudGroup);
+          cloudGroup = null;
+          cloudData = [];
+        }
+        if (rainSystem) {
+          rainSystem.mesh.geometry.dispose();
+          rainSystem.mesh.material.dispose();
+          scene.remove(rainSystem.mesh);
+          rainSystem = null;
+        }
+        if (atmosphericParticles) {
+          atmosphericParticles.mesh.geometry.dispose();
+          atmosphericParticles.mesh.material.dispose();
+          scene.remove(atmosphericParticles.mesh);
+          atmosphericParticles = null;
+        }
+        if (propertyGroup) {
+          propertyGroup.traverse(c => {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) c.material.dispose();
+          });
+          scene.remove(propertyGroup);
+          propertyGroup = null;
+          catchmentMesh = null;
+        }
+        if (dataVizGroup) {
+          dataVizGroup.traverse(c => {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) c.material.dispose();
+          });
+          scene.remove(dataVizGroup);
+          dataVizGroup = null;
+        }
+        if (contourLineGroup) {
+          contourLineGroup.traverse(c => {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) c.material.dispose();
+          });
+          scene.remove(contourLineGroup);
+          contourLineGroup = null;
+        }
+        labels.forEach(lb => lb.el.remove());
+        labels = [];
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+        const dt = Math.min(clock.getDelta(), 0.05);
+        elapsed += dt;
+        ctrl.update();
+        if (rainSystem) {
+          const pos = rainSystem.mesh.geometry.attributes.position.array;
+          for (let i = 0; i < rainSystem.count; i++) {
+            pos[i * 6 + 1] -= rainSystem.velocities[i] * dt;
+            pos[i * 6 + 4] -= rainSystem.velocities[i] * dt;
+            pos[i * 6] += rainSystem.windDx * dt * 10;
+            pos[i * 6 + 2] += rainSystem.windDz * dt * 10;
+            pos[i * 6 + 3] += rainSystem.windDx * dt * 10;
+            pos[i * 6 + 5] += rainSystem.windDz * dt * 10;
+            if (pos[i * 6 + 4] < 0) {
+              const x = (Math.random() - 0.5) * 300;
+              const y = 65 + Math.random() * 25;
+              const z = (Math.random() - 0.5) * 300;
+              pos[i * 6] = x;
+              pos[i * 6 + 1] = y + rainSystem.streakLength;
+              pos[i * 6 + 2] = z;
+              pos[i * 6 + 3] = x + rainSystem.windDx;
+              pos[i * 6 + 4] = y;
+              pos[i * 6 + 5] = z + rainSystem.windDz;
+            }
+          }
+          rainSystem.mesh.geometry.attributes.position.needsUpdate = true;
+        }
+        if (cloudData) {
+          for (const cd of cloudData) {
+            cd.mesh.position.x = cd.baseX + elapsed * cd.speed * cd.dx * 2;
+            cd.mesh.position.y = cd.baseY + Math.sin(elapsed * 0.25 + cd.baseX) * 1.5;
+            cd.mesh.position.z = cd.baseZ + elapsed * cd.speed * cd.dz * 2;
+            cd.mesh.lookAt(camera.position);
+            if (cd.mesh.position.x > 300) cd.mesh.position.x -= 600;
+            if (cd.mesh.position.x < -300) cd.mesh.position.x += 600;
+            if (cd.mesh.position.z > 300) cd.mesh.position.z -= 600;
+            if (cd.mesh.position.z < -300) cd.mesh.position.z += 600;
+            cd.shadow.position.x = cd.mesh.position.x;
+            cd.shadow.position.z = cd.mesh.position.z;
+          }
+        }
+        if (riverFlowSystems) {
+          for (const sys of riverFlowSystems) {
+            sys.material.uniforms.uTime.value = elapsed;
+            const pos = sys.particles.geometry.attributes.position.array;
+            for (let k = 0; k < sys.count; k++) {
+              sys.ts[k] += sys.speeds[k] * dt;
+              if (sys.ts[k] > 1) sys.ts[k] -= 1;
+              const pt = sys.curve.getPoint(sys.ts[k]);
+              const wobble = Math.sin(elapsed * 3 + k * 0.7) * 0.2;
+              pos[k * 3] = pt.x + wobble;
+              pos[k * 3 + 1] = pt.y + 0.15;
+              pos[k * 3 + 2] = pt.z + wobble * 0.5;
+            }
+            sys.particles.geometry.attributes.position.needsUpdate = true;
+          }
+        }
+        if (lakeMeshes) {
+          for (const lm of lakeMeshes) lm.material.uniforms.uTime.value = elapsed;
+        }
+        if (skyMat) skyMat.uniforms.uTime.value = elapsed;
+        if (catchmentMesh) catchmentMesh.material.opacity = 0.15 + Math.sin(elapsed * 2) * 0.08;
+        updateLabels();
+        if (atmosphericParticles) {
+          const pos = atmosphericParticles.mesh.geometry.attributes.position.array;
+          for (let i = 0; i < atmosphericParticles.count; i++) {
+            pos[i * 3 + 1] += Math.sin(elapsed * 0.5 + i) * dt * 0.3;
+            pos[i * 3] += Math.cos(elapsed * 0.3 + i * 0.5) * dt * 0.2;
+            if (pos[i * 3 + 1] > 65) pos[i * 3 + 1] = 5;
+            if (pos[i * 3 + 1] < 0) pos[i * 3 + 1] = 60;
+          }
+          atmosphericParticles.mesh.geometry.attributes.position.needsUpdate = true;
+        }
+        renderer.render(scene, camera);
+      }
+
+      function flyToView(name) {
+        const half = terrainHalf || 30;
+        const views = {
+          overview: { pos: [half * 0.8, half * 0.5, half * 0.9], target: [0, 5, 0] },
+          property: { pos: [15, 12, 18], target: [0, 5, 0] },
+          rivers: { pos: [-half * 0.5, 20, half * 0.4], target: [-half * 0.3, 2, half * 0.3] },
+          sky: { pos: [0, half * 0.7, 10], target: [0, 40, 0] },
+          data: { pos: [-half * 0.5, 40, -half * 0.5], target: [-half * 0.7, 15, -half * 0.7] },
+        };
+        const v = views[name];
+        if (!v) return;
+        const startPos = camera.position.clone();
+        const endPos = new THREE.Vector3(...v.pos);
+        const startTarget = ctrl.target.clone();
+        const endTarget = new THREE.Vector3(...v.target);
+        const startTime = performance.now();
+        const duration = 1500;
+        if (cameraAnim) cancelAnimationFrame(cameraAnim);
+        function animateCamera() {
+          const now = performance.now();
+          const t = Math.min((now - startTime) / duration, 1);
+          const e = t * t * (3 - 2 * t);
+          camera.position.lerpVectors(startPos, endPos, e);
+          ctrl.target.lerpVectors(startTarget, endTarget, e);
+          ctrl.update();
+          if (t < 1) cameraAnim = requestAnimationFrame(animateCamera);
+          else cameraAnim = null;
+        }
+        animateCamera();
+        document.querySelectorAll(".vb").forEach(b => b.classList.remove("on"));
+        const btn = document.querySelector(\`.vb[data-view="\${name}"]\`);
+        if (btn) btn.classList.add("on");
+      }
+
+      function geo2local(lat, lon) {
+        if (!terrainGrid || !terrainGS) return { x: 0, z: 0 };
+        const latMin = weatherData && weatherData.terrain_bounds ? weatherData.terrain_bounds.lat_min : 0;
+        const latMax = weatherData && weatherData.terrain_bounds ? weatherData.terrain_bounds.lat_max : 1;
+        const lonMin = weatherData && weatherData.terrain_bounds ? weatherData.terrain_bounds.lon_min : 0;
+        const lonMax = weatherData && weatherData.terrain_bounds ? weatherData.terrain_bounds.lon_max : 1;
+        const tLat = (lat - latMin) / (latMax - latMin);
+        const tLon = (lon - lonMin) / (lonMax - lonMin);
+        const x = (tLon - 0.5) * terrainCellSize * (terrainGS - 1);
+        const z = -(tLat - 0.5) * terrainCellSize * (terrainGS - 1);
+        return { x, z };
+      }
+
+      function getTerrainY(x, z) {
+        if (!terrainGrid) return 0;
+        const size = terrainCellSize * (terrainGS - 1);
+        const u = (x + size / 2) / size;
+        const v = (-z + size / 2) / size;
+        const gx = clamp(u * (terrainGS - 1), 0, terrainGS - 1);
+        const gz = clamp(v * (terrainGS - 1), 0, terrainGS - 1);
+        const x0 = Math.floor(gx);
+        const x1 = Math.min(x0 + 1, terrainGS - 1);
+        const z0 = Math.floor(gz);
+        const z1 = Math.min(z0 + 1, terrainGS - 1);
+        const tx = gx - x0;
+        const tz = gz - z0;
+        const e00 = terrainGrid[z0][x0];
+        const e10 = terrainGrid[z0][x1];
+        const e01 = terrainGrid[z1][x0];
+        const e11 = terrainGrid[z1][x1];
+        const e0 = e00 * (1 - tx) + e10 * tx;
+        const e1 = e01 * (1 - tx) + e11 * tx;
+        const e = e0 * (1 - tz) + e1 * tz;
+        return (e - terrainMinE) * SCALE * terrainExag;
+      }
+
+      function clamp(v, min, max) {
+        return Math.max(min, Math.min(max, v));
+      }
+
+      function fract(v) {
+        return v - Math.floor(v);
+      }
+    </script>
+  </body>
+</html>
