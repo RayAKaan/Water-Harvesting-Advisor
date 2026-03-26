@@ -710,6 +710,199 @@
         scrubTo(v){ this.currentHourIndex=Number(v)||0; this.isPlaying=false; document.getElementById('timeline-play-pause').textContent='▶️ Play'; this.applyNow(); }
       }
 
+
+      // ===== TERRAIN + WEATHER SYSTEMS =====
+      class VolumetricRainSystem {
+        constructor(sceneRef) {
+          this.scene = sceneRef;
+          this.mesh = null;
+          this.capacity = 45000;
+          this.active = 0;
+          this.wind = new THREE.Vector2(0, 0);
+          this.gravity = 9.8;
+          this.intensity = 0;
+          this.positions = null;
+          this.vel = null;
+          this.spawn();
+        }
+        spawn() {
+          const geom = new THREE.InstancedBufferGeometry();
+          const base = new THREE.PlaneGeometry(0.04, 1.2);
+          geom.index = base.index;
+          geom.attributes.position = base.attributes.position;
+          geom.attributes.uv = base.attributes.uv;
+          this.positions = new Float32Array(this.capacity * 3);
+          this.vel = new Float32Array(this.capacity);
+          const offsets = new Float32Array(this.capacity * 3);
+          const scales = new Float32Array(this.capacity);
+          for (let i=0;i<this.capacity;i++) {
+            offsets[i*3]=(Math.random()-0.5)*320;
+            offsets[i*3+1]=Math.random()*120+15;
+            offsets[i*3+2]=(Math.random()-0.5)*320;
+            scales[i]=0.8+Math.random()*1.8;
+            this.vel[i]=35+Math.random()*55;
+          }
+          geom.setAttribute('instanceOffset', new THREE.InstancedBufferAttribute(offsets,3));
+          geom.setAttribute('instanceScale', new THREE.InstancedBufferAttribute(scales,1));
+          const mat = new THREE.ShaderMaterial({
+            transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+            uniforms:{uOpacity:{value:0.0},uWind:{value:new THREE.Vector2(0,0)}},
+            vertexShader:`
+              attribute vec3 instanceOffset; attribute float instanceScale; varying float vAlpha;
+              uniform vec2 uWind;
+              void main(){
+                vec3 p = position; p.y *= instanceScale;
+                p.x += uWind.x * p.y * 0.02; p.z += uWind.y * p.y * 0.02;
+                vec3 wp = p + instanceOffset;
+                vAlpha = 1.0 - uv.y;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(wp,1.0);
+              }`,
+            fragmentShader:`
+              varying float vAlpha; uniform float uOpacity;
+              void main(){
+                float a = smoothstep(1.0,0.0,abs(vAlpha-0.5)*1.8) * uOpacity;
+                gl_FragColor = vec4(0.72,0.83,0.95,a);
+              }`
+          });
+          this.mesh = new THREE.Mesh(geom, mat);
+          this.mesh.frustumCulled = false;
+          this.scene.add(this.mesh);
+        }
+        setWeather(precip, windSpeed, windDir) {
+          this.intensity = clamp(precip/25,0,1);
+          const w = clamp((windSpeed||0)/30,0,1.2);
+          const ang = (windDir||0) * Math.PI/180;
+          this.wind.set(Math.sin(ang)*w, Math.cos(ang)*w);
+          this.active = Math.floor(this.capacity * (0.08 + this.intensity*0.92));
+          this.mesh.material.uniforms.uOpacity.value = this.intensity>0 ? 0.1 + this.intensity*0.35 : 0.0;
+          this.mesh.material.uniforms.uWind.value.copy(this.wind);
+          this.mesh.count = this.active;
+        }
+        update(dt){
+          if (!this.mesh || this.active<=0) return;
+          const attr = this.mesh.geometry.getAttribute('instanceOffset');
+          for (let i=0;i<this.active;i++) {
+            let y = attr.array[i*3+1] - this.vel[i]*dt;
+            attr.array[i*3] += this.wind.x*dt*28;
+            attr.array[i*3+2] += this.wind.y*dt*28;
+            if (y < getTerrainY(attr.array[i*3], attr.array[i*3+2]) + 0.4) {
+              y = 95 + Math.random()*45;
+              attr.array[i*3] = (Math.random()-0.5)*320;
+              attr.array[i*3+2] = (Math.random()-0.5)*320;
+            }
+            attr.array[i*3+1]=y;
+          }
+          attr.needsUpdate = true;
+        }
+        dispose(){ if(this.mesh){ this.scene.remove(this.mesh); this.mesh.geometry.dispose(); this.mesh.material.dispose(); this.mesh=null; } }
+      }
+
+      class WaterFlowSimulator {
+        constructor(){ this.wetness = 0; this.recentRain = 0; }
+        addRainfall(mm){ this.recentRain = mm||0; this.wetness = clamp(this.wetness + (mm||0)*0.01,0,1); }
+        update(dt,temp){
+          const evap = clamp((temp||25)/45,0.25,1.2) * 0.02;
+          this.wetness = clamp(this.wetness - evap*dt, 0, 1);
+        }
+      }
+
+      class CloudSystem {
+        constructor(){ this.coverage = 0; this.windDir=0; this.windSpeed=0; }
+        apply(weather){
+          this.coverage = (weather.cloud_cover||0)/100;
+          this.windDir = weather.wind_direction_10m||0;
+          this.windSpeed = weather.wind_speed_10m||0;
+          buildClouds(weather.cloud_cover||0, weather.wind_direction_10m||0);
+        }
+      }
+
+      class LightningSystem {
+        constructor(sceneRef){ this.scene=sceneRef; this.group=new THREE.Group(); this.flash=0; sceneRef.add(this.group); }
+        createStrike(){
+          const pts=[];
+          let x=(Math.random()-0.5)*180,z=(Math.random()-0.5)*180,y=120;
+          pts.push(new THREE.Vector3(x,y,z));
+          for(let i=0;i<7;i++){ x+=(Math.random()-0.5)*12; z+=(Math.random()-0.5)*12; y-=14+Math.random()*8; pts.push(new THREE.Vector3(x,y,z)); }
+          const geom=new THREE.BufferGeometry().setFromPoints(pts);
+          const mat=new THREE.LineBasicMaterial({color:0xddeaff,transparent:true,opacity:0.95});
+          const ln=new THREE.Line(geom,mat);
+          this.group.add(ln);
+          setTimeout(()=>{ this.group.remove(ln); geom.dispose(); mat.dispose(); },180);
+          this.flash = 1.0;
+        }
+        update(dt){
+          this.flash = Math.max(0,this.flash-dt*5);
+        }
+      }
+
+      class WeatherLayerManager {
+        constructor(){ this.layers={rainfall:false,wind:false,temp:false,runoff:false}; this.group=new THREE.Group(); scene.add(this.group); }
+        setLayer(name, on){ this.layers[name]=on; this.refresh(); }
+        refresh(){ this.group.visible = Object.values(this.layers).some(Boolean); }
+        update(weather){
+          if (!terrainGrid) return;
+          while(this.group.children.length){ const c=this.group.children.pop(); if(c.geometry) c.geometry.dispose(); if(c.material) c.material.dispose(); }
+          if (this.layers.wind) {
+            const len = 10 + (weather.wind_speed_10m||0) * 0.8;
+            const ang = (weather.wind_direction_10m||0) * Math.PI/180;
+            for(let i=-2;i<=2;i++) for(let j=-2;j<=2;j++){
+              const x=i*22,z=j*22,y=getTerrainY(x,z)+2;
+              const dir=new THREE.Vector3(Math.sin(ang),0,Math.cos(ang));
+              const arr=new THREE.ArrowHelper(dir,new THREE.Vector3(x,y,z),len,0x99ccff,2.5,1.1);
+              this.group.add(arr);
+            }
+          }
+        }
+      }
+
+      class WeatherTimelineController {
+        constructor(){ this.forecast=[]; this.currentHourIndex=0; this.isPlaying=false; this.playbackSpeed=4; this.lastUpdate=performance.now(); }
+        setForecast(wx){
+          this.forecast=[];
+          const cur=wx?.current||{};
+          const daily=wx?.forecast||[];
+          for(let h=0;h<168;h++){
+            const day = daily[Math.floor(h/24)]||{};
+            this.forecast.push({
+              precipitation: (day.rain||0)/24,
+              cloud_cover: cur.cloud||0,
+              wind_speed_10m: cur.wind_spd||0,
+              wind_direction_10m: cur.wind_dir||0,
+              relative_humidity_2m: cur.hum||60,
+              temperature_2m: cur.temp||25
+            });
+          }
+          this.renderPreview(daily);
+          this.applyNow();
+        }
+        renderPreview(daily){
+          const root=document.getElementById('forecast-preview'); root.innerHTML='';
+          for(let i=0;i<Math.min(7,daily.length);i++){ const d=daily[i]; const el=document.createElement('div'); el.className='mini'; el.textContent=`D${i+1} ${Math.round(d.rain||0)}mm`; root.appendChild(el);}   
+        }
+        getCurrentWeather(){ return this.forecast[Math.floor(this.currentHourIndex)] || this.forecast[0] || {precipitation:0,cloud_cover:0,wind_speed_10m:0,wind_direction_10m:0,relative_humidity_2m:60,temperature_2m:25}; }
+        applyNow(){
+          const w=this.getCurrentWeather();
+          if(rainSystemAdvanced) rainSystemAdvanced.setWeather(w.precipitation,w.wind_speed_10m,w.wind_direction_10m);
+          if(cloudSystem) cloudSystem.apply(w);
+          if(waterFlowSimulator) waterFlowSimulator.addRainfall(w.precipitation);
+          if(weatherLayerManager) weatherLayerManager.update(w);
+          updateFog({hum:w.relative_humidity_2m,cloud:w.cloud_cover,raining:w.precipitation>0.2});
+          if(lightningSystem && w.precipitation>10 && Math.random()<0.04) lightningSystem.createStrike();
+          this.updateDisplay();
+        }
+        update(now){
+          const dt=(now-this.lastUpdate)/1000; this.lastUpdate=now;
+          if(!this.isPlaying) return;
+          this.currentHourIndex += dt*this.playbackSpeed;
+          if(this.currentHourIndex>=168) this.currentHourIndex=0;
+          this.applyNow();
+          document.getElementById('time-scrubber').value = String(Math.floor(this.currentHourIndex));
+        }
+        updateDisplay(){ const day=Math.floor(this.currentHourIndex/24)+1; const hr=Math.floor(this.currentHourIndex%24); document.getElementById('current-time-display').textContent=`Day ${day}, ${String(hr).padStart(2,'0')}:00`; }
+        togglePlayPause(){ this.isPlaying=!this.isPlaying; document.getElementById('timeline-play-pause').textContent=this.isPlaying?'⏸️ Pause':'▶️ Play'; }
+        scrubTo(v){ this.currentHourIndex=Number(v)||0; this.isPlaying=false; document.getElementById('timeline-play-pause').textContent='▶️ Play'; this.applyNow(); }
+      }
+
       initScene();
       animate();
 
@@ -1685,9 +1878,9 @@
         scene.add(cloudGroup);
       }
 
-      function buildRain(precip, windDir, windSpd = 0) {
+      function buildRain(precip, windDir) {
         if (rainSystemAdvanced) {
-          rainSystemAdvanced.setWeather(precip || 0, windSpd || 0, windDir || 0);
+          rainSystemAdvanced.setWeather(precip || 0, (weatherData && weatherData.current ? weatherData.current.wind_spd : 0), windDir || 0);
         }
       }
 
@@ -2126,7 +2319,7 @@
         fpsBudget.last = now;
         fpsBudget.smoothed = fpsBudget.smoothed * 0.9 + instFps * 0.1;
         ctrl.update();
-        if (weatherTimeline) weatherTimeline.update(now);
+        if (weatherTimeline) weatherTimeline.update(performance.now());
         if (waterFlowSimulator) waterFlowSimulator.update(dt, weatherTimeline ? weatherTimeline.getCurrentWeather().temperature_2m : 25);
         if (terrainShaderMat && waterFlowSimulator) terrainShaderMat.uniforms.uWetness.value = waterFlowSimulator.wetness;
         if (lightningSystem) lightningSystem.update(dt);
