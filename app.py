@@ -1,7 +1,22 @@
 ﻿from flask import Flask, render_template, request, jsonify
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import requests, math, statistics
-from datetime import datetime
+import json
+import math
+import os
+from pathlib import Path
+import statistics
+import time
+from datetime import datetime, timedelta
+
+import requests
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv()
 
 app = Flask(__name__)
 
@@ -9,6 +24,12 @@ GRID = 28
 RADIUS_KM = 2.5
 ELEV_CHUNK = 100
 OSM_RADIUS = 3500
+CACHE_DURATION = 86400
+VISUAL_CROSSING_TIMEOUT = 15
+HISTORICAL_RAIN_THRESHOLD_MM = 1.0
+VISUAL_CROSSING_KEY = os.getenv("VISUAL_CROSSING_API_KEY", "").strip()
+CACHE_DIR = Path("cache")
+CACHE_DIR.mkdir(exist_ok=True)
 
 CITIES = {
     "Mumbai": {"lat": 19.0760, "lon": 72.8777, "rain": 2400, "hum": 75, "alt": 14, "coast": True, "stress": "High", "mo": [1, 1, 0, 1, 20, 530, 840, 555, 340, 75, 15, 3]},
@@ -52,6 +73,235 @@ def _safe_int(v, default=0):
         return int(v)
     except Exception:
         return default
+
+def _coerce_float_or_none(value):
+    try:
+        number = float(value)
+        if math.isfinite(number):
+            return number
+    except Exception:
+        pass
+    return None
+
+def _round_or_none(value, digits=2):
+    number = _coerce_float_or_none(value)
+    return round(number, digits) if number is not None else None
+
+def _normalize_precip_type(value):
+    if value in (None, "", []):
+        return None
+    if isinstance(value, list):
+        items = [str(item).strip().lower() for item in value if str(item).strip()]
+        return items or None
+    parts = [part.strip().lower() for part in str(value).replace(";", ",").split(",") if part.strip()]
+    return parts or None
+
+def _weather_code_to_precip_type(code):
+    rain_codes = {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82}
+    snow_codes = {71, 73, 75, 77, 85, 86}
+    precip_type = []
+    if code in rain_codes:
+        precip_type.append("rain")
+    if code in snow_codes:
+        precip_type.append("snow")
+    return precip_type or None
+
+def get_cache_path(cache_key):
+    return CACHE_DIR / f"{cache_key}.json"
+
+def is_cache_valid(cache_path):
+    if not cache_path.exists():
+        return False
+    return (time.time() - cache_path.stat().st_mtime) < CACHE_DURATION
+
+def get_cached_historical(cache_key):
+    cache_path = get_cache_path(cache_key)
+    if not is_cache_valid(cache_path):
+        return None
+    try:
+        with cache_path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+def save_cached_historical(cache_key, data):
+    cache_path = get_cache_path(cache_key)
+    try:
+        with cache_path.open("w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False)
+    except OSError as exc:
+        app.logger.warning("Failed to save historical cache %s: %s", cache_key, exc)
+
+def _build_historical_record(date_value, precipitation_mm, precip_type=None, humidity=None, temp_max_c=None, temp_min_c=None, wind_speed_kmh=None):
+    return {
+        "date": str(date_value),
+        "precipitation_mm": round(max(_coerce_float_or_none(precipitation_mm) or 0.0, 0.0), 2),
+        "precip_type": _normalize_precip_type(precip_type),
+        "humidity": _round_or_none(humidity, 2),
+        "temp_max_c": _round_or_none(temp_max_c, 2),
+        "temp_min_c": _round_or_none(temp_min_c, 2),
+        "wind_speed_kmh": _round_or_none(wind_speed_kmh, 2),
+    }
+
+def calculate_rainfall_statistics(daily_data):
+    total_days = len(daily_data)
+    rainy_days = 0
+    total_precipitation = 0.0
+    max_daily_rainfall = 0.0
+    dry_spell = 0
+    dry_spell_max = 0
+
+    for entry in daily_data:
+        rainfall = max(_coerce_float_or_none(entry.get("precipitation_mm")) or 0.0, 0.0)
+        total_precipitation += rainfall
+        max_daily_rainfall = max(max_daily_rainfall, rainfall)
+        if rainfall > HISTORICAL_RAIN_THRESHOLD_MM:
+            rainy_days += 1
+            dry_spell = 0
+        else:
+            dry_spell += 1
+            dry_spell_max = max(dry_spell_max, dry_spell)
+
+    years_covered = max(total_days / 365.25, 1 / 365.25) if total_days else 1
+    avg_annual_rainfall = total_precipitation / years_covered if total_days else 0.0
+
+    return {
+        "total_days": total_days,
+        "rainy_days": rainy_days,
+        "total_precipitation_mm": round(total_precipitation, 2),
+        "avg_annual_rainfall_mm": round(avg_annual_rainfall, 2),
+        "max_daily_rainfall_mm": round(max_daily_rainfall, 2),
+        "dry_spell_max_days": dry_spell_max,
+    }
+
+def fetch_visual_crossing_historical(lat, lon, start_date, end_date):
+    """
+    Fetch from Visual Crossing API.
+    Returns: (success: bool, data: list | None, error: str | None)
+    """
+    if not VISUAL_CROSSING_KEY or VISUAL_CROSSING_KEY == "YOUR_KEY_HERE":
+        return False, None, "Visual Crossing API key is not configured."
+
+    location = f"{lat:.6f},{lon:.6f}"
+    url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{location}/{start_date}/{end_date}"
+    params = {
+        "key": VISUAL_CROSSING_KEY,
+        "include": "days",
+        "elements": "datetime,precip,preciptype,humidity,tempmax,tempmin,windspeed",
+        "unitGroup": "metric",
+        "contentType": "json",
+    }
+
+    try:
+        response = requests.get(url, params=params, timeout=VISUAL_CROSSING_TIMEOUT)
+        if response.status_code == 429:
+            return False, None, "Visual Crossing quota or rate limit exceeded."
+        if response.status_code in {401, 403}:
+            return False, None, "Visual Crossing rejected the configured API key."
+        response.raise_for_status()
+        payload = response.json()
+        days = payload.get("days") or []
+        if not days:
+            return False, None, "Visual Crossing returned no daily records."
+        daily_data = [
+            _build_historical_record(
+                day.get("datetime"),
+                day.get("precip"),
+                day.get("preciptype"),
+                day.get("humidity"),
+                day.get("tempmax"),
+                day.get("tempmin"),
+                day.get("windspeed"),
+            )
+            for day in days
+        ]
+        return True, daily_data, None
+    except requests.Timeout:
+        return False, None, "Visual Crossing request timed out."
+    except requests.RequestException as exc:
+        return False, None, f"Visual Crossing request failed: {exc}"
+    except (TypeError, ValueError, KeyError) as exc:
+        return False, None, f"Visual Crossing parsing failed: {exc}"
+
+def fetch_open_meteo_historical_fallback(lat, lon, start_date, end_date):
+    """
+    Fallback to Open-Meteo archive API when Visual Crossing is unavailable.
+    """
+    archive_url = "https://archive-api.open-meteo.com/v1/archive"
+    base_params = {
+        "latitude": lat,
+        "longitude": lon,
+        "start_date": start_date,
+        "end_date": end_date,
+        "timezone": "GMT",
+    }
+
+    try:
+        daily_response = requests.get(
+            archive_url,
+            params={
+                **base_params,
+                "daily": "precipitation_sum,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,weather_code",
+            },
+            timeout=VISUAL_CROSSING_TIMEOUT,
+        )
+        daily_response.raise_for_status()
+        daily_payload = daily_response.json().get("daily", {})
+
+        humidity_response = requests.get(
+            archive_url,
+            params={**base_params, "hourly": "relative_humidity_2m"},
+            timeout=VISUAL_CROSSING_TIMEOUT,
+        )
+        humidity_response.raise_for_status()
+        humidity_payload = humidity_response.json().get("hourly", {})
+
+        humidity_buckets = {}
+        humidity_times = humidity_payload.get("time") or []
+        humidity_values = humidity_payload.get("relative_humidity_2m") or []
+        for index, stamp in enumerate(humidity_times):
+            humidity = _coerce_float_or_none(humidity_values[index] if index < len(humidity_values) else None)
+            if humidity is None:
+                continue
+            day_key = str(stamp).split("T")[0]
+            humidity_buckets.setdefault(day_key, []).append(humidity)
+        humidity_by_day = {
+            day_key: sum(values) / len(values)
+            for day_key, values in humidity_buckets.items()
+            if values
+        }
+
+        times = daily_payload.get("time") or []
+        precipitation = daily_payload.get("precipitation_sum") or []
+        temp_max = daily_payload.get("temperature_2m_max") or []
+        temp_min = daily_payload.get("temperature_2m_min") or []
+        wind_speed = daily_payload.get("wind_speed_10m_max") or []
+        weather_codes = daily_payload.get("weather_code") or []
+
+        daily_data = []
+        for index, day_value in enumerate(times):
+            code = _safe_int(weather_codes[index], -1) if index < len(weather_codes) else -1
+            daily_data.append(
+                _build_historical_record(
+                    day_value,
+                    precipitation[index] if index < len(precipitation) else 0.0,
+                    _weather_code_to_precip_type(code),
+                    humidity_by_day.get(day_value),
+                    temp_max[index] if index < len(temp_max) else None,
+                    temp_min[index] if index < len(temp_min) else None,
+                    wind_speed[index] if index < len(wind_speed) else None,
+                )
+            )
+
+        if not daily_data:
+            return False, None, "Open-Meteo fallback returned no daily records."
+        return True, daily_data, None
+    except requests.Timeout:
+        return False, None, "Open-Meteo fallback timed out."
+    except requests.RequestException as exc:
+        return False, None, f"Open-Meteo fallback request failed: {exc}"
+    except (TypeError, ValueError, KeyError) as exc:
+        return False, None, f"Open-Meteo fallback parsing failed: {exc}"
 
 def _find_city(lat, lon, city_name=None):
     if city_name and city_name in CITIES:
@@ -197,6 +447,8 @@ def fetch_weather(lat, lon, city_name=None):
 
     try:
         last_year = datetime.now().year - 1
+        # Keep /api/geodata lightweight for annual and monthly summaries.
+        # /api/historical-deep is the detailed multi-year endpoint for ML workflows.
         ares = requests.get(
             "https://archive-api.open-meteo.com/v1/archive",
             params={"latitude": lat, "longitude": lon, "start_date": f"{last_year}-01-01", "end_date": f"{last_year}-12-31", "daily": "precipitation_sum", "timezone": "auto"},
@@ -505,6 +757,81 @@ def api_analyze():
         return jsonify({"ok": True, "data": result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+# ============================================
+# VISUAL CROSSING INTEGRATION
+# Purpose: Fetch 5+ years historical weather
+# Used by: ML rainfall pattern classifier
+# Rate limit: 1000/day, fallback to Open-Meteo
+# ============================================
+@app.post("/api/historical-deep")
+def api_historical_deep():
+    try:
+        body = request.get_json(silent=True) or {}
+        if body.get("latitude") is None or body.get("longitude") is None:
+            return jsonify({"ok": False, "error": "Latitude and longitude are required."}), 400
+
+        lat = _coerce_float_or_none(body.get("latitude"))
+        lon = _coerce_float_or_none(body.get("longitude"))
+        years = _safe_int(body.get("years"), 5)
+
+        if lat is None or lon is None:
+            return jsonify({"ok": False, "error": "Latitude and longitude must be valid numbers."}), 400
+        if not (-90 <= lat <= 90):
+            return jsonify({"ok": False, "error": "Latitude must be between -90 and 90."}), 400
+        if not (-180 <= lon <= 180):
+            return jsonify({"ok": False, "error": "Longitude must be between -180 and 180."}), 400
+        if not (1 <= years <= 10):
+            return jsonify({"ok": False, "error": "Years must be between 1 and 10."}), 400
+
+        end_date_obj = datetime.utcnow().date()
+        start_date_obj = end_date_obj - timedelta(days=years * 365)
+        start_date = start_date_obj.isoformat()
+        end_date = end_date_obj.isoformat()
+
+        cache_key = f"{lat:.4f}_{lon:.4f}_{years}"
+        cached = get_cached_historical(cache_key)
+        if cached:
+            cached["cached"] = True
+            return jsonify(cached)
+
+        errors = []
+        source = "fallback"
+        daily_data = []
+
+        success, deep_data, error = fetch_visual_crossing_historical(lat, lon, start_date, end_date)
+        if success and deep_data:
+            source = "visual_crossing"
+            daily_data = deep_data
+        else:
+            if error:
+                errors.append(error)
+            success, fallback_data, fallback_error = fetch_open_meteo_historical_fallback(lat, lon, start_date, end_date)
+            if success and fallback_data:
+                source = "open_meteo"
+                daily_data = fallback_data
+            elif fallback_error:
+                errors.append(fallback_error)
+
+        response = {
+            "ok": bool(daily_data),
+            "source": source,
+            "location": {"lat": round(lat, 6), "lon": round(lon, 6)},
+            "date_range": {"start": start_date, "end": end_date},
+            "daily_data": daily_data,
+            "summary_stats": calculate_rainfall_statistics(daily_data),
+            "cached": False,
+        }
+        if errors:
+            response["error"] = " ".join(errors)
+
+        if daily_data:
+            save_cached_historical(cache_key, response)
+
+        return jsonify(response)
+    except Exception as exc:
+        app.logger.exception("Historical deep endpoint failed")
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
