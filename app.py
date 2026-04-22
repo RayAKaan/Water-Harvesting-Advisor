@@ -601,23 +601,216 @@ def calc_recharge(R, total_area, soil):
         "cost": "INR 7,000 - 80,000",
     }
 
-def score_method(m):
-    annual = m.get("annual", 0)
-    if annual <= 0:
-        return 1
-    if annual < 5000:
-        return 2
-    if annual < 15000:
-        return 3
-    if annual < 35000:
-        return 5
-    if annual < 70000:
-        return 6
-    if annual < 150000:
-        return 7
-    if annual < 300000:
-        return 8
-    return 9
+COST_RANGES = {
+    "rainwater": (5000, 35000),
+    "stormwater": (3000, 20000),
+    "greywater": (8000, 60000),
+    "ac": (500, 3000),
+    "fog": (6000, 40000),
+    "recharge": (7000, 80000),
+}
+
+def _parse_cost(cost_str):
+    import re
+    nums = re.findall(r"[\d,]+", cost_str.replace("INR", ""))
+    if len(nums) >= 2:
+        return (int(nums[0].replace(",", "")), int(nums[1].replace(",", "")))
+    return (0, 0)
+
+def _estimate_cost(system_id, scale=1.0):
+    lo, hi = COST_RANGES.get(system_id, (1000, 10000))
+    return lo * scale, hi * scale
+
+def generate_candidates(weather, inp):
+    annual_rain = _safe_float(weather.get("annual_rain", 0.0))
+    hum = _safe_float(weather.get("current", {}).get("hum", 60))
+    alt = _safe_float(weather.get("altitude", 0))
+    coastal = bool(weather.get("coastal", False))
+    roof_area = max(0.1, inp["roof_area"])
+    land_area = max(0.1, inp["land_area"])
+    people = max(0, inp["people"])
+    soil = inp.get("soil", "loamy")
+
+    base_results = {
+        "rainwater": calc_rainwater(annual_rain, roof_area, inp.get("surface", "concrete")),
+        "stormwater": calc_storm(annual_rain, land_area, inp.get("land_type", "open")),
+        "greywater": calc_grey(people, inp.get("kitchen", True)),
+        "ac": calc_ac(inp.get("ac_units", 0), inp.get("ac_hrs", 0), inp.get("ac_mos", 0), hum),
+        "fog": calc_fog(hum, alt, coastal, area=max(10, roof_area * 0.1)),
+        "recharge": calc_recharge(annual_rain, roof_area + land_area, soil),
+    }
+
+    candidates = []
+    system_ids = ["rainwater", "stormwater", "greywater", "ac", "fog", "recharge"]
+
+    for sid in system_ids:
+        if base_results[sid].get("ok"):
+            cost_lo, cost_hi = _estimate_cost(sid)
+            candidates.append({
+                "id": f"plan_{sid}",
+                "systems": [sid],
+                "description": f"Single system: {base_results[sid]['name']}",
+                "water_annual": base_results[sid].get("annual", 0),
+                "cost_lo": cost_lo,
+                "cost_hi": cost_hi,
+            })
+
+    combo_configs = [
+        (["rainwater", "greywater"], "Basic Combo"),
+        (["rainwater", "recharge"], "Rainwater + Recharge"),
+        (["rainwater", "stormwater"], "Rain + Storm"),
+        (["rainwater", "greywater", "recharge"], "Full House"),
+        (["rainwater", "fog", "recharge"], "Rain + Fog + Recharge"),
+        (["rainwater", "greywater", "ac"], "With AC Recovery"),
+        (["rainwater", "stormwater", "recharge"], "Comprehensive"),
+        (["rainwater", "greywater", "fog", "recharge"], "Max Coverage"),
+    ]
+
+    for sys_list, label in combo_configs:
+        water_total = sum(base_results[sid].get("annual", 0) for sid in sys_list if base_results[sid].get("ok"))
+        if water_total > 0:
+            cost_total_lo, cost_total_hi = 0, 0
+            for sid in sys_list:
+                lo, hi = _estimate_cost(sid)
+                cost_total_lo += lo
+                cost_total_hi += hi
+            names = [base_results[sid]["name"] for sid in sys_list if base_results[sid].get("ok")]
+            candidates.append({
+                "id": f"plan_{len(candidates)}",
+                "systems": sys_list,
+                "description": f"{label}: {', '.join(names)}",
+                "water_annual": round(water_total, 2),
+                "cost_lo": cost_total_lo,
+                "cost_hi": cost_total_hi,
+            })
+
+    tank_sizes = [1000, 5000, 10000, 20000]
+    for tank in tank_sizes:
+        if base_results["rainwater"].get("ok") and tank >= base_results["rainwater"].get("tank", 0):
+            scale = tank / base_results["rainwater"].get("tank", 1000)
+            water_scaled = base_results["rainwater"].get("annual", 0) * min(scale, 1.5)
+            cost_lo, cost_hi = _estimate_cost("rainwater", scale)
+            candidates.append({
+                "id": f"plan_tank_{tank}",
+                "systems": ["rainwater"],
+                "description": f"Rooftop with {tank}L tank",
+                "water_annual": round(water_scaled, 2),
+                "cost_lo": cost_lo,
+                "cost_hi": cost_hi,
+            })
+
+    return candidates[:20]
+
+def evaluate_metrics(candidate, weather, inp):
+    water = candidate["water_annual"]
+    cost_lo, cost_hi = candidate["cost_lo"], candidate["cost_hi"]
+    avg_cost = (cost_lo + cost_hi) / 2
+
+    annual_rain = _safe_float(weather.get("annual_rain", 0.0))
+    hum = _safe_float(weather.get("current", {}).get("hum", 60))
+    alt = _safe_float(weather.get("altitude", 0))
+    coastal = bool(weather.get("coastal", False))
+
+    max_water = annual_rain * max(inp["roof_area"], inp["land_area"]) * 0.9
+    water_eff = (water / max_water) if max_water > 0 else 0
+
+    cost_per_liter = avg_cost / water if water > 0 else 999
+    max_reasonable = 50
+    cost_eff = max(0, 1 - (cost_per_liter / max_reasonable))
+
+    cv = _safe_float(weather.get("cv", 0))
+    monsoon_dep = _safe_float(weather.get("monsoon_dep", 0))
+    risk_score = 0
+    if cv > 0.5:
+        risk_score += 0.3
+    if monsoon_dep > 80:
+        risk_score += 0.2
+    if not coastal and annual_rain < 800:
+        risk_score += 0.3
+    if alt > 1500:
+        risk_score += 0.15
+    risk_reduction = min(1.0, risk_score)
+
+    sust_factors = []
+    if "recharge" in candidate["systems"]:
+        sust_factors.append(0.25)
+    if "greywater" in candidate["systems"]:
+        sust_factors.append(0.25)
+    if "fog" in candidate["systems"] and (hum > 60 or alt > 500 or coastal):
+        sust_factors.append(0.2)
+    if "rainwater" in candidate["systems"]:
+        sust_factors.append(0.15)
+    sustainability = min(1.0, sum(sust_factors))
+
+    return {
+        "water_efficiency": round(min(1.0, water_eff), 3),
+        "cost_efficiency": round(min(1.0, cost_eff), 3),
+        "risk_reduction": round(min(1.0, risk_reduction), 3),
+        "sustainability": round(sustainability, 3),
+    }
+
+def calculate_scores(metrics, weights={"water": 0.35, "cost": 0.25, "risk": 0.20, "sust": 0.20}):
+    return (
+        weights["water"] * metrics["water_efficiency"] +
+        weights["cost"] * metrics["cost_efficiency"] +
+        weights["risk"] * metrics["risk_reduction"] +
+        weights["sust"] * metrics["sustainability"]
+    )
+
+def generate_explanation(candidate, metrics, weather):
+    reasons = []
+    if metrics["water_efficiency"] > 0.5:
+        reasons.append("High water yield potential")
+    elif metrics["water_efficiency"] > 0.2:
+        reasons.append("Moderate water recovery")
+    else:
+        reasons.append("Limited water capture")
+
+    if metrics["cost_efficiency"] > 0.7:
+        reasons.append("Low cost per liter")
+    elif metrics["cost_efficiency"] > 0.4:
+        reasons.append("Moderate investment")
+    else:
+        reasons.append("Higher upfront cost")
+
+    if metrics["risk_reduction"] > 0.5:
+        reasons.append("Reduces climate risk")
+    if metrics["sustainability"] > 0.5:
+        reasons.append("Environmentally sustainable")
+
+    annual_rain = _safe_float(weather.get("annual_rain", 0.0))
+    if annual_rain > 1500:
+        reasons.append(f"High rainfall area ({int(annual_rain)}mm/year)")
+    elif annual_rain < 600:
+        reasons.append(f"Low rainfall region - consider recharge")
+
+    return reasons
+
+def calculate_confidence(weather, inp):
+    confidence_factors = []
+
+    source = weather.get("source", "")
+    if source in ["Satellite (Open-Meteo)", "City Climatology"]:
+        confidence_factors.append(0.35)
+    elif source == "Fallback":
+        confidence_factors.append(0.15)
+
+    conf = weather.get("confidence", "LOW")
+    if conf == "HIGH":
+        confidence_factors.append(0.35)
+    elif conf == "MEDIUM":
+        confidence_factors.append(0.2)
+
+    if inp.get("roof_area", 0) > 50:
+        confidence_factors.append(0.15)
+
+    cv = _safe_float(weather.get("cv", 0))
+    if cv < 0.3:
+        confidence_factors.append(0.15)
+    elif cv > 0.7:
+        confidence_factors.append(-0.1)
+
+    return min(1.0, max(0.1, sum(confidence_factors)))
 
 def run_analysis(weather, inp):
     annual_rain = _safe_float(weather.get("annual_rain", 0.0))
@@ -625,26 +818,28 @@ def run_analysis(weather, inp):
     alt = _safe_float(weather.get("altitude", 0))
     coastal = bool(weather.get("coastal", False))
 
-    methods = [
-        calc_rainwater(annual_rain, inp["roof_area"], inp["surface"]),
-        calc_storm(annual_rain, inp["land_area"], inp["land_type"]),
-        calc_grey(inp["people"], inp["kitchen"]),
-        calc_ac(inp["ac_units"], inp["ac_hrs"], inp["ac_mos"], hum),
-        calc_fog(hum, alt, coastal, area=max(10, inp["roof_area"] * 0.1)),
-        calc_recharge(annual_rain, inp["roof_area"] + inp["land_area"], inp["soil"]),
-    ]
-    for m in methods:
-        m["score"] = score_method(m)
+    candidates = generate_candidates(weather, inp)
 
-    direct = [m for m in methods if m["id"] not in {"stormwater", "recharge"} and m.get("ok")]
-    recharge = [m for m in methods if m["id"] in {"stormwater", "recharge"} and m.get("ok")]
-    total = sum(m.get("annual", 0.0) for m in direct)
-    ranked = sorted([m for m in methods if m.get("ok")], key=lambda x: x.get("annual", 0.0), reverse=True)
-    for i, m in enumerate(ranked, start=1):
-        m["rank"] = i
+    for cand in candidates:
+        cand["metrics"] = evaluate_metrics(cand, weather, inp)
+        cand["score"] = calculate_scores(cand["metrics"])
+        cand["explanation"] = generate_explanation(cand, cand["metrics"], weather)
 
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+
+    confidence = calculate_confidence(weather, inp)
+
+    for i, c in enumerate(candidates[:10]):
+        c["rank"] = i + 1
+
+    top_plan = candidates[0] if candidates else None
+    total = top_plan["water_annual"] if top_plan else 0
+
+    avg_cost_lo = sum(c["cost_lo"] for c in candidates[:3]) / min(3, len(candidates)) if candidates else 0
+    avg_cost_hi = sum(c["cost_hi"] for c in candidates[:3]) / min(3, len(candidates)) if candidates else 0
     annual_savings = total * 0.05
     co2 = total * 0.0003 * 0.82
+
     if total >= 300000:
         stars, label = "⭐⭐⭐⭐⭐", "Advanced"
     elif total >= 180000:
@@ -656,9 +851,9 @@ def run_analysis(weather, inp):
     else:
         stars, label = "⭐", "Basic"
 
-    roof_coeff = ROOF_C.get(inp["surface"], 0.9)
+    roof_coeff = ROOF_C.get(inp.get("surface", "concrete"), 0.9)
     mlist = weather.get("monthly", [0.0] * 12)
-    monthly = [{"month": i + 1, "rainfall_mm": round(_safe_float(mlist[i] if i < len(mlist) else 0), 2), "harvested_l": round(_safe_float(mlist[i] if i < len(mlist) else 0) * inp["roof_area"] * roof_coeff, 2)} for i in range(12)]
+    monthly = [{"month": i + 1, "rainfall_mm": round(_safe_float(mlist[i] if i < len(mlist) else 0), 2), "harvested_l": round(_safe_float(mlist[i] if i < len(mlist) else 0) * inp.get("roof_area", 100) * roof_coeff, 2)} for i in range(12)]
 
     fsum = sum(_safe_float(d.get("rain", 0.0)) for d in weather.get("forecast", []))
     if fsum >= 120:
@@ -676,9 +871,17 @@ def run_analysis(weather, inp):
         cum_inr += annual_savings
         proj.append({"year": y, "year_l": round(total, 2), "year_inr": round(annual_savings, 2), "cum_l": round(cum_l, 2), "cum_inr": round(cum_inr, 2)})
 
-    top_names = [m["name"] for m in ranked[:3]]
+    methods = [
+        calc_rainwater(annual_rain, inp.get("roof_area", 100), inp.get("surface", "concrete")),
+        calc_storm(annual_rain, inp.get("land_area", 100), inp.get("land_type", "open")),
+        calc_grey(inp.get("people", 4), inp.get("kitchen", True)),
+        calc_ac(inp.get("ac_units", 0), inp.get("ac_hrs", 0), inp.get("ac_mos", 0), hum),
+        calc_fog(hum, alt, coastal, area=max(10, inp.get("roof_area", 100) * 0.1)),
+        calc_recharge(annual_rain, inp.get("roof_area", 100) + inp.get("land_area", 100), inp.get("soil", "loamy")),
+    ]
+
     actions = [
-        f"Prioritize {top_names[0]} deployment first for maximum impact." if top_names else "Start with rooftop rainwater harvesting.",
+        f"Implement {top_plan['description']} as primary plan." if top_plan else "Start with rooftop rainwater harvesting.",
         "Install first-flush diverter and mesh filter before monsoon.",
         "Schedule quarterly cleaning of gutters, tanks, and recharge inlets.",
         "Track monthly harvested volume and compare with expected chart.",
@@ -686,22 +889,42 @@ def run_analysis(weather, inp):
     ]
 
     return {
+        "candidates": candidates[:10],
+        "optimization": {
+            "weights": {"water": 0.35, "cost": 0.25, "risk": 0.20, "sust": 0.20},
+            "confidence": round(confidence, 2),
+            "num_generated": len(candidates),
+        },
+        "top_plan": {
+            "description": top_plan["description"] if top_plan else None,
+            "systems": top_plan["systems"] if top_plan else [],
+            "score": round(top_plan["score"], 3) if top_plan else 0,
+            "metrics": top_plan["metrics"] if top_plan else {},
+        },
         "methods": methods,
-        "ranked": ranked,
+        "ranked": candidates[:10],
         "total": round(total, 2),
-        "financial": {"annual_savings": round(annual_savings, 2)},
+        "financial": {
+            "annual_savings": round(annual_savings, 2),
+            "cost_range": f"INR {int(avg_cost_lo):,} - {int(avg_cost_hi):,}",
+        },
         "env": {"co2": round(co2, 3)},
         "maturity": {"stars": stars, "label": label},
         "monthly": monthly,
         "alert": alert,
         "climate": {
-            "annual_rain": weather.get("annual_rain", 0.0), "source": weather.get("source", "Unknown"), "hum": weather.get("current", {}).get("hum", 0),
-            "altitude": weather.get("altitude", 0), "coastal": weather.get("coastal", False), "stress": weather.get("stress", "Moderate"),
-            "monsoon_dep": weather.get("monsoon_dep", 0), "cv": weather.get("cv", 0), "confidence": weather.get("confidence", "LOW"),
+            "annual_rain": weather.get("annual_rain", 0.0),
+            "source": weather.get("source", "Unknown"),
+            "hum": weather.get("current", {}).get("hum", 0),
+            "altitude": weather.get("altitude", 0),
+            "coastal": weather.get("coastal", False),
+            "stress": weather.get("stress", "Moderate"),
+            "monsoon_dep": weather.get("monsoon_dep", 0),
+            "cv": weather.get("cv", 0),
+            "confidence": weather.get("confidence", "LOW"),
         },
         "forecast": weather.get("forecast", []),
         "proj": proj,
-        "recharge_total": round(sum(m.get("annual", 0.0) for m in recharge), 2),
         "actions": actions,
     }
 

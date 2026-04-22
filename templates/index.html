@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Water Harvesting Advisor</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
       :root {
         color-scheme: light;
@@ -38,8 +39,17 @@
         width: 100%;
         height: 100%;
       }
-      #viewport { position: absolute; inset: 0; }
-      #ui { position: absolute; inset: 0; pointer-events: none; }
+      #viewport { 
+        position: absolute; 
+        inset: 0; 
+        z-index: 1;
+        pointer-events: auto;
+      }
+      #viewport.leaflet-container {
+        width: 100% !important;
+        height: 100% !important;
+      }
+      #ui { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
       .topbar {
         position: absolute;
         top: 16px;
@@ -47,6 +57,7 @@
         right: 16px;
         display: flex;
         align-items: center;
+        flex-wrap: nowrap;
         gap: 12px;
         pointer-events: none;
       }
@@ -71,6 +82,20 @@
         box-shadow: var(--shadow);
         pointer-events: auto;
       }
+      .map-selector {
+        margin-left: auto;
+        pointer-events: auto;
+      }
+      .map-selector select {
+        width: auto;
+        min-width: 170px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
       .vb {
         border: none;
         background: transparent;
@@ -88,8 +113,8 @@
         bottom: 16px;
         top: 90px;
         width: 388px;
-        display: grid;
-        grid-template-rows: auto auto auto 1fr;
+        display: flex;
+        flex-direction: column;
         gap: 12px;
         pointer-events: auto;
         overflow-y: auto;
@@ -98,6 +123,271 @@
         padding-bottom: 8px;
         scrollbar-width: thin;
         scrollbar-color: rgba(28, 111, 102, 0.45) transparent;
+      }
+      .panels > .panel {
+        flex-shrink: 0;
+      }
+      .panels > .panel:last-child {
+        flex: 1;
+        min-height: 300px;
+        max-height: 520px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .panels > .panel:last-child .rec-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 12px;
+        flex-shrink: 0;
+      }
+      .panels > .panel:last-child h2 {
+        margin: 0;
+        min-width: 0;
+        font-size: 1.02rem;
+        letter-spacing: 0.1px;
+      }
+      .expand-btn {
+        width: auto;
+        min-width: 98px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        border: 1px solid var(--accent);
+        padding: 6px 12px;
+        border-radius: 8px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        margin-top: 0;
+        white-space: nowrap;
+        flex: 0 0 auto;
+      }
+      .expand-btn:hover {
+        background: var(--accent);
+        color: white;
+      }
+      #recModal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 1000;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+      #recModal.active {
+        display: flex;
+      }
+      #recModal .modal-content {
+        background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,247,0.98) 100%);
+        border-radius: 20px;
+        padding: 24px;
+        max-width: 700px;
+        max-height: 85vh;
+        width: 100%;
+        overflow-y: auto;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        position: relative;
+      }
+      #recModal .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--line);
+        position: sticky;
+        top: 0;
+        background: inherit;
+        z-index: 1;
+      }
+      #recModal .modal-header h2 {
+        margin: 0;
+        color: var(--accent);
+      }
+      #recModal .close-modal {
+        background: var(--line);
+        border: none;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        font-size: 1.2rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+        margin-top: 0;
+      }
+      #recModal .close-modal:hover {
+        background: var(--accent);
+        color: white;
+      }
+      #recModal .modal-body {
+        padding: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      #recModal .detail-note {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.84rem;
+      }
+      #recModal .rec-modal-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      #recModal .rec-modal-item {
+        width: 100%;
+        margin: 0;
+        padding: 12px 14px;
+        border-radius: 12px;
+        text-align: left;
+        background: #ffffff;
+        color: #1a3a36;
+        border: 1px solid var(--line);
+        box-shadow: none;
+      }
+      #recModal .rec-modal-item:hover {
+        transform: none;
+        border-color: var(--accent);
+        box-shadow: 0 4px 12px rgba(28, 111, 102, 0.12);
+      }
+      #recModal .rec-modal-item .type {
+        display: inline-block;
+        margin-bottom: 6px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      #recModal .rec-modal-item .title {
+        margin: 0;
+        font-size: 0.95rem;
+        color: #173430;
+      }
+      #recModal .rec-modal-item .summary {
+        margin: 6px 0 0;
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+      #recModal .rec-modal-detail {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      #recModal .rec-back-btn {
+        width: auto;
+        margin: 0;
+        align-self: flex-start;
+        background: var(--line);
+        color: #2f4742;
+        box-shadow: none;
+        padding: 8px 12px;
+        border-radius: 10px;
+      }
+      #recModal .rec-back-btn:hover {
+        background: #d5ddd7;
+        transform: none;
+      }
+      #recModal .rec-detail-card {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+      }
+      #recModal .rec-detail-type {
+        margin: 0 0 6px;
+        color: var(--accent);
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+      #recModal .rec-detail-title {
+        margin: 0 0 10px;
+        color: #173430;
+        font-size: 1.06rem;
+      }
+      #recModal .rec-detail-summary {
+        margin: 0 0 10px;
+        color: #39544e;
+        font-size: 0.88rem;
+      }
+      #recModal .rec-detail-description {
+        margin: 0;
+        color: #263d38;
+        line-height: 1.55;
+        white-space: pre-line;
+      }
+      #recModal .rec-live-panel {
+        background: linear-gradient(135deg, rgba(28,111,102,0.1) 0%, rgba(59,130,246,0.08) 100%);
+        border: 1px solid rgba(28,111,102,0.22);
+        border-radius: 12px;
+        padding: 12px;
+      }
+      #recModal .rec-live-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      #recModal .rec-live-title {
+        margin: 0;
+        font-size: 0.86rem;
+        color: #163a35;
+        font-weight: 700;
+      }
+      #recModal .rec-live-time {
+        margin: 0;
+        font-size: 0.72rem;
+        color: #4a6660;
+      }
+      #recModal .rec-live-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      #recModal .rec-live-card {
+        background: rgba(255,255,255,0.84);
+        border: 1px solid rgba(28,111,102,0.16);
+        border-radius: 9px;
+        padding: 8px;
+      }
+      #recModal .rec-live-label {
+        margin: 0 0 4px;
+        font-size: 0.65rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #56706a;
+      }
+      #recModal .rec-live-value {
+        margin: 0;
+        font-size: 0.92rem;
+        color: #183d38;
+        font-weight: 700;
+      }
+      #recModal .rec-live-sub {
+        margin: 0;
+        font-size: 0.72rem;
+        color: #4a6660;
+      }
+      #recModal .rec-live-chart {
+        background: rgba(255,255,255,0.78);
+        border-radius: 10px;
+        padding: 6px;
       }
       .panels::-webkit-scrollbar {
         width: 10px;
@@ -121,8 +411,289 @@
         backdrop-filter: blur(18px);
         -webkit-backdrop-filter: blur(18px);
       }
-      .panel:last-child {
-        min-height: 280px;
+      #recommendations {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 6px;
+        margin-right: -6px;
+      }
+      #recommendations::-webkit-scrollbar {
+        width: 5px;
+      }
+      #recommendations::-webkit-scrollbar-track {
+        background: rgba(0,0,0,0.05);
+        border-radius: 3px;
+      }
+      #recommendations::-webkit-scrollbar-thumb {
+        background: rgba(28, 111, 102, 0.3);
+        border-radius: 3px;
+      }
+      .rec-hero {
+        background: linear-gradient(135deg, #1c6f66 0%, #2a8a7f 100%);
+        border-radius: 14px;
+        padding: 18px;
+        color: white;
+        margin-bottom: 16px;
+        box-shadow: 0 4px 16px rgba(28, 111, 102, 0.25);
+      }
+      .rec-hero h3 {
+        margin: 0 0 10px;
+        font-size: 1.1rem;
+        color: white;
+        line-height: 1.3;
+      }
+      .rec-hero .score-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(255,255,255,0.2);
+        padding: 6px 14px;
+        border-radius: 25px;
+        font-size: 0.95rem;
+        font-weight: 700;
+        margin-bottom: 12px;
+      }
+      .rec-hero .score-badge .percent {
+        font-size: 1.15rem;
+      }
+      .rec-hero .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .rec-hero .stat-item {
+        background: rgba(255,255,255,0.12);
+        padding: 10px 12px;
+        border-radius: 10px;
+      }
+      .rec-hero .stat-item .label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        opacity: 0.85;
+        margin-bottom: 3px;
+      }
+      .rec-hero .stat-item .value {
+        font-size: 0.95rem;
+        font-weight: 600;
+      }
+      .rec-section {
+        margin-bottom: 18px;
+      }
+      .rec-chart-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .rec-chart-grid.single {
+        grid-template-columns: 1fr;
+      }
+      .rec-chart-card {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 10px 8px;
+      }
+      .rec-chart-title {
+        margin: 0;
+        color: #183a35;
+        font-size: 0.86rem;
+        font-weight: 700;
+      }
+      .rec-chart-sub {
+        margin: 4px 0 8px;
+        color: var(--muted);
+        font-size: 0.74rem;
+      }
+      .rec-chart {
+        width: 100%;
+      }
+      .rec-chart svg {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      .rec-chart .bar-x {
+        fill: #58706a;
+        font-size: 10px;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+      }
+      .rec-chart .bar-v {
+        fill: #143a35;
+        font-size: 10px;
+        font-weight: 600;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+      }
+      .rec-chart-empty {
+        border: 1px dashed var(--line);
+        border-radius: 10px;
+        padding: 16px 12px;
+        color: var(--muted);
+        font-size: 0.8rem;
+        text-align: center;
+        background: rgba(255,255,255,0.72);
+      }
+      .rec-section h4 {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--muted);
+        margin: 0 0 10px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid var(--line);
+      }
+      .rec-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rec-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        background: white;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        transition: all 0.2s ease;
+      }
+      .rec-item:hover {
+        border-color: var(--accent);
+        box-shadow: 0 2px 8px rgba(28, 111, 102, 0.12);
+      }
+      .rec-rank {
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent-soft);
+        color: var(--accent);
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 0.8rem;
+        flex-shrink: 0;
+      }
+      .rec-item:nth-child(1) .rec-rank {
+        background: linear-gradient(135deg, #ffd700, #ffb700);
+        color: #5a4a00;
+      }
+      .rec-item:nth-child(2) .rec-rank {
+        background: linear-gradient(135deg, #c0c0c0, #a8a8a8);
+        color: #3a3a3a;
+      }
+      .rec-item:nth-child(3) .rec-rank {
+        background: linear-gradient(135deg, #cd7f32, #b87333);
+        color: #3a2a10;
+      }
+      .rec-info {
+        flex: 1;
+        min-width: 0;
+      }
+      .rec-info strong {
+        display: block;
+        font-size: 0.85rem;
+        color: #1a3a36;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .rec-info span {
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
+      .rec-score-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        flex-shrink: 0;
+      }
+      .rec-score-bar .bar-bg {
+        width: 50px;
+        height: 6px;
+        background: var(--line);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .rec-score-bar .bar-fill {
+        height: 100%;
+        background: var(--accent);
+        border-radius: 3px;
+      }
+      .rec-score-bar .percent {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--accent);
+        min-width: 32px;
+        text-align: right;
+      }
+      .rec-actions {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .rec-actions li {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 12px;
+        background: linear-gradient(135deg, rgba(28, 111, 102, 0.06) 0%, rgba(202, 164, 114, 0.04) 100%);
+        border-radius: 10px;
+        margin-bottom: 8px;
+        font-size: 0.85rem;
+        color: #3a4a46;
+        border-left: 3px solid var(--accent);
+      }
+      .rec-actions li::before {
+        content: "→";
+        color: var(--accent);
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .rec-climate {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .rec-climate .climate-item {
+        background: white;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+      }
+      .rec-climate .climate-item .label {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--muted);
+        margin-bottom: 2px;
+      }
+      .rec-climate .climate-item .value {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #1a3a36;
+      }
+      .rec-maturity {
+        text-align: center;
+        padding: 14px;
+        background: linear-gradient(135deg, rgba(202, 164, 114, 0.15) 0%, rgba(202, 164, 114, 0.08) 100%);
+        border-radius: 12px;
+        font-size: 1rem;
+        color: #5a4a20;
+      }
+      .rec-empty {
+        text-align: center;
+        padding: 40px 20px;
+        color: var(--muted);
+      }
+      .rec-empty .icon {
+        font-size: 2.5rem;
+        margin-bottom: 12px;
+        opacity: 0.5;
       }
       h2 {
         margin: 0 0 12px;
@@ -255,16 +826,6 @@
       }
       .btn-secondary:hover { background: #555e64; }
       .btn-secondary:active { background: #4a5359; }
-      #radar-status {
-        margin-top: 8px;
-        padding: 8px 10px;
-        border-radius: 8px;
-        background: rgba(28, 111, 102, 0.08);
-        color: var(--muted);
-        font-size: 0.82rem;
-        text-align: center;
-        min-height: 34px;
-      }
       pre {
         background: #0e1412;
         color: #e7efe9;
@@ -349,33 +910,24 @@
         pointer-events: all;
       }
 
-      #weather-controls {
-        position: absolute;
-        left: 50%;
-        bottom: 16px;
-        transform: translateX(-50%);
-        background: rgba(8, 12, 18, 0.86);
-        border: 1px solid rgba(255,255,255,0.16);
-        border-radius: 12px;
-        padding: 10px 12px;
-        color: #e9eff8;
-        z-index: 50;
-        pointer-events: auto;
-        font-family: "Segoe UI", Tahoma, sans-serif;
-        min-width: 640px;
-        box-shadow: 0 8px 28px rgba(0,0,0,0.35);
-      }
-      #weather-controls .rowline { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-      #weather-controls input[type="range"] { flex:1; min-width:240px; }
-      #weather-controls label { margin:0; color:#d4deea; font-size:0.78rem; }
-      #weather-controls select, #weather-controls button { width:auto; margin:0; padding:6px 10px; }
-      #forecast-preview { display:flex; gap:6px; margin-top:8px; }
-      #forecast-preview .mini { background: rgba(255,255,255,0.08); padding:6px; border-radius:7px; min-width:74px; font-size:0.68rem; }
-
       @media (max-width: 1100px) {
         .panels { width: 336px; }
       }
       @media (max-width: 900px) {
+        .topbar {
+          left: 12px;
+          right: 12px;
+          top: 12px;
+          align-items: stretch;
+          flex-wrap: wrap;
+        }
+        .map-selector {
+          margin-left: 0;
+        }
+        .map-selector select {
+          width: 100%;
+          min-width: 0;
+        }
         .panels {
           position: absolute;
           left: 12px;
@@ -383,10 +935,27 @@
           width: auto;
           top: auto;
           bottom: 12px;
-          grid-template-rows: auto auto auto auto;
+          gap: 10px;
           max-height: 70%;
           overflow: auto;
           padding-right: 4px;
+        }
+        #recModal {
+          padding: 12px;
+        }
+        #recModal .modal-content {
+          padding: 16px;
+          max-height: 90vh;
+        }
+        #recModal .modal-header {
+          margin-bottom: 12px;
+          padding-bottom: 10px;
+        }
+        #recModal .rec-live-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+        .rec-chart-grid {
+          grid-template-columns: 1fr;
         }
         .row {
           grid-template-columns: 1fr;
@@ -403,12 +972,13 @@
             <h1>Water Harvesting Advisor</h1>
             <p>Terrain-driven planning with live climate context</p>
           </div>
-          <div class="viewbar">
-            <button class="vb on" data-view="overview">Overview</button>
-            <button class="vb" data-view="property">Property</button>
-            <button class="vb" data-view="rivers">Rivers</button>
-            <button class="vb" data-view="data">Data</button>
-            <button class="vb" data-view="sky">Sky</button>
+          <div class="map-selector">
+            <select id="mapType">
+              <option value="topo">Topographic</option>
+              <option value="osm">OpenStreetMap</option>
+              <option value="satellite">Satellite</option>
+              <option value="minimal">Minimal</option>
+            </select>
           </div>
         </div>
 
@@ -512,56 +1082,25 @@
             <div id="analysisStatus" class="status"></div>
           </section>
 
-          <section class="panel">
-            <h2>3) Live Rain Radar</h2>
-            <p class="muted">Overlay live RainViewer radar frames over the current terrain scene.</p>
-            <div class="control-section">
-              <div class="control-row">
-                <label>
-                  <input type="checkbox" id="radar-toggle" />
-                  Show radar overlay
-                </label>
-              </div>
-              <div class="control-row">
-                <button id="radar-play-pause" class="btn-secondary">Pause Animation</button>
-              </div>
-              <div class="control-row">
-                <button id="radar-refresh" class="btn-secondary">Refresh Radar</button>
-              </div>
-              <div id="radar-status">Radar idle. Load terrain to fetch frames.</div>
+          <section class="panel" id="recPanel">
+            <div class="rec-header">
+              <h2>3) Recommendations</h2>
+              <button id="expandRec" class="expand-btn" title="View full recommendations">Expand</button>
             </div>
-          </section>
-
-          <section class="panel">
-            <h2>4) Output</h2>
-            <p class="muted">Results update after each action. Raw JSON is shown.</p>
-            <pre id="output">{}</pre>
+            <div id="recommendations"></div>
           </section>
         </div>
 
-        <div id="weather-controls">
-          <div class="rowline">
-            <button id="timeline-play-pause" class="secondary">▶️ Play</button>
-            <input type="range" id="time-scrubber" min="0" max="167" value="0" />
-            <span id="current-time-display">Day 1, 00:00</span>
-            <label>Speed</label>
-            <select id="playback-speed">
-              <option value="1">1x</option>
-              <option value="2">2x</option>
-              <option value="4" selected>4x</option>
-              <option value="8">8x</option>
-              <option value="24">24x</option>
-            </select>
-          </div>
-          <div class="rowline" style="margin-top:8px;">
-            <label><input type="checkbox" id="layer-rainfall" /> Rainfall</label>
-            <label><input type="checkbox" id="layer-wind" /> Wind</label>
-            <label><input type="checkbox" id="layer-temp" /> Temperature</label>
-            <label><input type="checkbox" id="layer-runoff" /> Runoff</label>
-          </div>
-          <div id="forecast-preview"></div>
-        </div>
         <div id="labels"></div>
+      </div>
+      <div id="recModal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Recommendations</h2>
+            <button class="close-modal" id="closeRecModal">&times;</button>
+          </div>
+          <div class="modal-body" id="recModalBody"></div>
+        </div>
       </div>
       <div id="loading">Loading...</div>
     </div>
@@ -573,6 +1112,7 @@
         }
       }
     </script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module">
       import * as THREE from "three";
       import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -580,12 +1120,66 @@
       import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
       import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 
-      const SCALE = 0.08;
+const SCALE = 0.08;
       const canvasRoot = document.getElementById("viewport");
       const labelsRoot = document.getElementById("labels");
       const loadingEl = document.getElementById("loading");
-
-      let scene, camera, renderer, ctrl;
+      
+      // Leaflet Map Setup
+      const MAP_TILES = {
+        topo: { url: 'https://tile.opentopomap.org/{z}/{x}/{y}.png', name: 'Topographic' },
+        osm: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', name: 'OpenStreetMap' },
+        satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', name: 'Satellite' },
+        minimal: { url: 'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', name: 'Minimal' }
+      };
+      
+      let leafletMap = null;
+      let currentMapType = 'topo';
+      
+      function initLeaflet() {
+        if (leafletMap || typeof L === 'undefined') {
+          console.log('Leaflet not ready, retrying...');
+          setTimeout(initLeaflet, 100);
+          return;
+        }
+        if (leafletMap) return;
+        console.log('Initializing Leaflet map');
+        leafletMap = L.map('viewport', {
+          center: [20.5937, 78.9629],
+          zoom: 5,
+          zoomControl: false
+        });
+        
+        L.tileLayer(MAP_TILES.topo.url, {
+          attribution: '© OpenTopoMap © OpenStreetMap',
+          maxZoom: 17
+        }).addTo(leafletMap);
+        
+        document.getElementById('mapType').addEventListener('change', (e) => {
+          currentMapType = e.target.value;
+          leafletMap.eachLayer(l => leafletMap.removeLayer(l));
+          L.tileLayer(MAP_TILES[currentMapType].url, {
+            attribution: currentMapType === 'osm' ? '© OpenStreetMap' : 
+                        currentMapType === 'satellite' ? '© Esri' : 
+                        currentMapType === 'minimal' ? '© CartoDB' : '© OpenTopoMap © OpenStreetMap',
+            maxZoom: 17
+          }).addTo(leafletMap);
+        });
+        
+        document.getElementById('viewport').style.pointerEvents = 'auto';
+        document.getElementById('viewport').style.cursor = 'grab';
+      }
+      
+      // Initialize Leaflet map on page load
+      document.addEventListener('DOMContentLoaded', initLeaflet);
+      // Also try immediately in case DOM already loaded
+      setTimeout(initLeaflet, 0);
+      
+      // Only init Three.js scene when explicitly triggered
+      let threeInitialized = false;
+      
+      // Dummy scene for safety when 3D not enabled
+      let scene = { add: ()=>{}, remove: ()=>{}, fog: null, background: null }, camera, renderer, ctrl;
       let terrainMesh = null;
       let terrainGrid = null;
       let terrainGS = 0;
@@ -606,7 +1200,6 @@
       let lightningSystem = null;
       let waterFlowSimulator = null;
       let weatherLayerManager = null;
-      let rainRadar = null;
 
       let contourLineGroup = null;
       let riverGroup = null;
@@ -724,7 +1317,7 @@
           const w = clamp((windSpeed||0)/30,0,1.2);
           const ang = (windDir||0) * Math.PI/180;
           this.wind.set(Math.sin(ang)*w, Math.cos(ang)*w);
-          const cameraScale = camera ? clamp(1 - (camera.position.length() / 700), 0.25, 1) : 1;
+          const cameraScale = camera && camera.position ? clamp(1 - (camera.position.length() / 700), 0.25, 1) : 1;
           const perfScale = clamp(fpsBudget.smoothed / 55, 0.35, 1);
           this.active = Math.floor(this.capacity * (0.08 + this.intensity*0.92) * cameraScale * perfScale);
           this.mesh.material.uniforms.uOpacity.value = this.intensity>0 ? 0.1 + this.intensity*0.35 : 0.0;
@@ -1728,7 +2321,7 @@
         }
         _buildWindArrows() {
           if (!this.layers.wind) return;
-          const distance = camera ? camera.position.distanceTo(ctrl?.target || new THREE.Vector3()) : 120;
+          const distance = camera && camera.position ? camera.position.distanceTo(ctrl?.target || new THREE.Vector3()) : 120;
           const bucket = distance > 220 ? 3 : distance > 140 ? 2 : 1;
           const gridCount = bucket === 3 ? 7 : bucket === 2 ? 5 : 3;
           const spacing = bucket === 3 ? 24 : bucket === 2 ? 30 : 42;
@@ -1762,7 +2355,7 @@
         }
         syncWithCamera() {
           if (!this.layers.wind || !this._lastWeather) return;
-          const distance = camera ? camera.position.distanceTo(ctrl?.target || new THREE.Vector3()) : 120;
+          const distance = camera && camera.position ? camera.position.distanceTo(ctrl?.target || new THREE.Vector3()) : 120;
           const bucket = distance > 220 ? 3 : distance > 140 ? 2 : 1;
           const key = `${bucket}:${Math.round(this._lastWeather.windSpeed || 0)}:${Math.round(this._lastWeather.windDir || 0)}`;
           if (key !== this._windOverlayKey) this.update(this._lastWeather);
@@ -1849,6 +2442,7 @@
         }
         renderPreview(daily) {
           const root = document.getElementById("forecast-preview");
+          if (!root) return;
           root.innerHTML = "";
           for (let i = 0; i < Math.min(7, daily.length); i++) {
             const day = daily[i];
@@ -1893,258 +2487,46 @@
           if (this.currentHourIndex >= 168) this.currentHourIndex = 0;
           const currentHour = Math.floor(this.currentHourIndex);
           if (currentHour !== this.lastAppliedHour) this.applyNow();
-          document.getElementById("time-scrubber").value = String(currentHour);
+          const scrubber = document.getElementById("time-scrubber");
+          if (scrubber) scrubber.value = String(currentHour);
         }
         updateDisplay() {
           const day = Math.floor(this.currentHourIndex / 24) + 1;
           const hour = Math.floor(this.currentHourIndex % 24);
-          document.getElementById("current-time-display").textContent = `Day ${day}, ${String(hour).padStart(2, "0")}:00`;
+          const display = document.getElementById("current-time-display");
+          if (display) display.textContent = `Day ${day}, ${String(hour).padStart(2, "0")}:00`;
         }
         togglePlayPause() {
           this.isPlaying = !this.isPlaying;
-          document.getElementById("timeline-play-pause").textContent = this.isPlaying ? "Pause" : "Play";
+          const playPauseBtn = document.getElementById("timeline-play-pause");
+          if (playPauseBtn) playPauseBtn.textContent = this.isPlaying ? "Pause" : "Play";
         }
         scrubTo(value) {
           this.currentHourIndex = Number(value) || 0;
           this.isPlaying = false;
-          document.getElementById("timeline-play-pause").textContent = "Play";
+          const playPauseBtn = document.getElementById("timeline-play-pause");
+          if (playPauseBtn) playPauseBtn.textContent = "Play";
           this.applyNow();
         }
       }
 
-      // ============================================
-      // RAINVIEWER INTEGRATION
-      // Purpose: Live rain radar overlay
-      // Updates: Every 10 minutes automatically
-      // API Docs: https://www.rainviewer.com/api.html
-      // ============================================
-      class LiveRainRadar {
-        constructor(sceneRef, cameraRef) {
-          this.scene = sceneRef;
-          this.camera = cameraRef;
-          this.latitude = 0;
-          this.longitude = 0;
-          this.host = "";
-          this.frames = [];
-          this.radarMesh = null;
-          this.textureCache = new Map();
-          this.currentFrameIndex = 0;
-          this.isPlaying = false;
-          this.animationInterval = null;
-          this.lastUpdate = 0;
-          this.lastRenderTime = 0;
-          this.updateFrequency = 600000;
-          this.minFrameStep = 100;
-          this.zoom = 10;
-          this.isRefreshing = false;
-        }
-
-        async initialize(latitude, longitude, terrainSize) {
-          this.latitude = latitude;
-          this.longitude = longitude;
-          const loaded = await this.fetchRadarFrames();
-          if (!loaded || !this.frames.length) return false;
-          this.createRadarMesh(terrainSize);
-          await this.loadFrameTexture(0);
-          this.preloadFrameTexture(1);
-          this.setVisible(document.getElementById("radar-toggle").checked);
-          return true;
-        }
-
-        async fetchRadarFrames() {
-          if (this.isRefreshing) return this.frames.length > 0;
-          this.isRefreshing = true;
-          try {
-            const response = await fetch("https://api.rainviewer.com/public/weather-maps.json");
-            if (!response.ok) {
-              throw new Error(`RainViewer API error: ${response.status}`);
-            }
-
-            const data = await response.json();
-            this.host = String(data.host || "").replace(/^https?:\/\//, "");
-            this.frames = [...(data.radar?.past || []), ...(data.radar?.nowcast || [])];
-            this.lastUpdate = Date.now();
-            this.currentFrameIndex = 0;
-
-            for (const texture of this.textureCache.values()) {
-              texture.dispose();
-            }
-            this.textureCache.clear();
-
-            updateRadarStatus(`Loaded ${this.frames.length} radar frames.`, true);
-            return this.frames.length > 0;
-          } catch (error) {
-            console.error("RainViewer fetch failed:", error);
-            this.frames = [];
-            updateRadarStatus("Radar frames unavailable right now.", false);
-            return false;
-          } finally {
-            this.isRefreshing = false;
-          }
-        }
-
-        getTileCoordinates(lat, lon, zoom) {
-          const latRad = lat * Math.PI / 180;
-          const n = Math.pow(2, zoom);
-          const x = Math.floor((lon + 180) / 360 * n);
-          const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
-          return { x, y };
-        }
-
-        getRadarTileURL(frame, lat, lon, zoom = this.zoom) {
-          if (!frame || !this.host) return null;
-          const { x, y } = this.getTileCoordinates(lat, lon, zoom);
-          return `https://${this.host}${frame.path}/${zoom}/${x}/${y}/2/1_1.png`;
-        }
-
-        createRadarMesh(terrainSize) {
-          if (!terrainGrid || !terrainGS) return;
-          if (this.radarMesh) this.disposeMesh();
-
-          const size = terrainSize || terrainCellSize * (terrainGS - 1);
-          const geometry = new THREE.PlaneGeometry(size, size, 32, 32);
-          geometry.rotateX(-Math.PI / 2);
-          const positions = geometry.attributes.position;
-          for (let index = 0; index < positions.count; index++) {
-            const x = positions.getX(index);
-            const z = positions.getZ(index);
-            positions.setY(index, getTerrainY(x, z) + 2);
-          }
-          positions.needsUpdate = true;
-          geometry.computeVertexNormals();
-
-          const material = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
-            transparent: true,
-            opacity: 0.68,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-          });
-
-          this.radarMesh = new THREE.Mesh(geometry, material);
-          this.radarMesh.renderOrder = 12;
-          this.scene.add(this.radarMesh);
-        }
-
-        async loadFrameTexture(frameIndex) {
-          const frame = this.frames[frameIndex];
-          if (!frame || !this.radarMesh) return null;
-
-          const url = this.getRadarTileURL(frame, this.latitude, this.longitude);
-          if (!url) return null;
-          if (this.textureCache.has(url)) {
-            this.applyTexture(this.textureCache.get(url));
-            return this.textureCache.get(url);
-          }
-
-          return new Promise((resolve) => {
-            const loader = new THREE.TextureLoader();
-            loader.load(
-              url,
-              (texture) => {
-                texture.colorSpace = THREE.SRGBColorSpace;
-                texture.wrapS = THREE.ClampToEdgeWrapping;
-                texture.wrapT = THREE.ClampToEdgeWrapping;
-                this.textureCache.set(url, texture);
-                this.applyTexture(texture);
-                resolve(texture);
-              },
-              undefined,
-              (error) => {
-                console.warn("Failed to load radar tile:", error);
-                resolve(null);
-              }
-            );
-          });
-        }
-
-        applyTexture(texture) {
-          if (!this.radarMesh || !texture) return;
-          this.radarMesh.material.map = texture;
-          this.radarMesh.material.needsUpdate = true;
-        }
-
-        preloadFrameTexture(frameIndex) {
-          const frame = this.frames[frameIndex];
-          if (!frame) return;
-          const url = this.getRadarTileURL(frame, this.latitude, this.longitude);
-          if (!url || this.textureCache.has(url)) return;
-
-          const loader = new THREE.TextureLoader();
-          loader.load(
-            url,
-            (texture) => {
-              texture.colorSpace = THREE.SRGBColorSpace;
-              this.textureCache.set(url, texture);
-            },
-            undefined,
-            () => {}
-          );
-        }
-
-        startAnimation() {
-          if (!this.frames.length || this.animationInterval) return;
-          this.isPlaying = true;
-          this.animationInterval = window.setInterval(async () => {
-            if (!this.frames.length) return;
-            this.currentFrameIndex = (this.currentFrameIndex + 1) % this.frames.length;
-            await this.loadFrameTexture(this.currentFrameIndex);
-            this.preloadFrameTexture((this.currentFrameIndex + 1) % this.frames.length);
-          }, this.minFrameStep);
-        }
-
-        stopAnimation() {
-          if (this.animationInterval) {
-            clearInterval(this.animationInterval);
-            this.animationInterval = null;
-          }
-          this.isPlaying = false;
-        }
-
-        setVisible(visible) {
-          if (this.radarMesh) this.radarMesh.visible = visible;
-        }
-
-        async refresh() {
-          const success = await this.fetchRadarFrames();
-          if (!success) return false;
-          await this.loadFrameTexture(0);
-          this.preloadFrameTexture(1);
-          return true;
-        }
-
-        update(currentTime) {
-          if (currentTime - this.lastUpdate >= this.updateFrequency && !this.isRefreshing) {
-            this.refresh().then((success) => {
-              if (success) updateRadarStatus(`Radar updated at ${new Date().toLocaleTimeString()}.`, true);
-            });
-          }
-          if (!this.isPlaying || currentTime - this.lastRenderTime < this.minFrameStep) return;
-          this.lastRenderTime = currentTime;
-        }
-
-        disposeMesh() {
-          if (!this.radarMesh) return;
-          this.radarMesh.material.map = null;
-          this.radarMesh.geometry.dispose();
-          this.radarMesh.material.dispose();
-          this.scene.remove(this.radarMesh);
-          this.radarMesh = null;
-        }
-
-        dispose() {
-          this.stopAnimation();
-          for (const texture of this.textureCache.values()) {
-            texture.dispose();
-          }
-          this.textureCache.clear();
-          this.disposeMesh();
-        }
+      // Only init Three.js scene when user explicitly requests 3D mode
+      
+      window.enable3DMode = function() {
+        if (threeInitialized) return;
+        threeInitialized = true;
+        initScene();
+        animate();
+        document.getElementById('viewport').style.pointerEvents = 'auto';
       }
-
-      initScene();
-      animate();
-
+      
+      window.disable3DMode = function() {
+        threeInitialized = false;
+      }
+      
+      // Keep Leaflet as default - don't auto-init 3D
+      // initScene() and animate() removed - use enable3DMode() to enable 3D
+      
       function initScene() {
         scene = new THREE.Scene();
         scene.background = new THREE.Color("#0d1b2a");
@@ -2210,52 +2592,10 @@
         document.querySelectorAll(".vb").forEach(btn => {
           btn.addEventListener("click", () => flyToView(btn.dataset.view));
         });
-        document.getElementById("timeline-play-pause").addEventListener("click", () => weatherTimeline && weatherTimeline.togglePlayPause());
-        document.getElementById("time-scrubber").addEventListener("input", (e) => weatherTimeline && weatherTimeline.scrubTo(e.target.value));
-        document.getElementById("playback-speed").addEventListener("change", (e) => { if (weatherTimeline) weatherTimeline.playbackSpeed = Number(e.target.value || 4); });
-        document.getElementById("layer-rainfall").addEventListener("change", (e) => weatherLayerManager && weatherLayerManager.setLayer("rainfall", e.target.checked));
-        document.getElementById("layer-wind").addEventListener("change", (e) => weatherLayerManager && weatherLayerManager.setLayer("wind", e.target.checked));
-        document.getElementById("layer-temp").addEventListener("change", (e) => weatherLayerManager && weatherLayerManager.setLayer("temp", e.target.checked));
-        document.getElementById("layer-runoff").addEventListener("change", (e) => weatherLayerManager && weatherLayerManager.setLayer("runoff", e.target.checked));
-        document.getElementById("radar-toggle").addEventListener("change", (e) => {
-          if (rainRadar) {
-            rainRadar.setVisible(e.target.checked);
-            if (e.target.checked) {
-              rainRadar.startAnimation();
-              document.getElementById("radar-play-pause").textContent = "Pause Animation";
-            } else {
-              rainRadar.stopAnimation();
-              document.getElementById("radar-play-pause").textContent = "Play Animation";
-            }
-          }
-          updateRadarStatus(e.target.checked ? "Radar overlay visible." : "Radar overlay hidden.", true);
-        });
-        document.getElementById("radar-play-pause").addEventListener("click", () => {
-          if (!rainRadar) return;
-          const btn = document.getElementById("radar-play-pause");
-          if (rainRadar.isPlaying) {
-            rainRadar.stopAnimation();
-            btn.textContent = "Play Animation";
-            updateRadarStatus("Radar animation paused.", true);
-          } else {
-            rainRadar.startAnimation();
-            btn.textContent = "Pause Animation";
-            updateRadarStatus("Radar animation resumed.", true);
-          }
-        });
-        document.getElementById("radar-refresh").addEventListener("click", async () => {
-          if (!rainRadar) return;
-          updateRadarStatus("Refreshing radar data...", true);
-          const success = await rainRadar.refresh();
-          if (success) {
-            updateRadarStatus(`Updated at ${new Date().toLocaleTimeString()} (${rainRadar.frames.length} frames).`, true);
-          } else {
-            updateRadarStatus("Radar refresh failed.", false);
-          }
-        });
       }
 
       function onResize() {
+        if (!threeInitialized || !camera || !renderer) return;
         const w = canvasRoot.clientWidth || window.innerWidth;
         const h = canvasRoot.clientHeight || window.innerHeight;
         camera.aspect = w / h;
@@ -2273,9 +2613,378 @@
         loadingEl.style.display = show ? "flex" : "none";
         loadingEl.textContent = text || "Loading...";
       }
+      let recommendationDetailItems = [];
+      let latestRecommendationPayload = null;
+      let recModalRefreshTimer = null;
+      function setRecommendationDetails(items) {
+        recommendationDetailItems = Array.isArray(items) ? items : [];
+      }
+
+      function safeNumber(value, fallback = 0) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : fallback;
+      }
+
+      function escHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function buildBarChartSvg(labels, values, options = {}) {
+        const width = options.width || 360;
+        const height = options.height || 170;
+        const padTop = 22;
+        const padRight = 12;
+        const padBottom = 42;
+        const padLeft = 34;
+        const color = options.color || "#1c6f66";
+        const unit = options.unit || "";
+
+        const numeric = values.map(v => safeNumber(v, 0));
+        const maxValue = Math.max(...numeric, 0);
+        if (!labels.length || maxValue <= 0) {
+          return `<div class="rec-chart-empty">No chartable values available from current data.</div>`;
+        }
+
+        const chartW = width - padLeft - padRight;
+        const chartH = height - padTop - padBottom;
+        const gap = 8;
+        const count = numeric.length;
+        const barW = Math.max(16, (chartW - gap * (count - 1)) / count);
+
+        const yTicks = [0, maxValue / 2, maxValue];
+        const grid = yTicks.map(tick => {
+          const y = padTop + chartH - (tick / maxValue) * chartH;
+          return `<line x1="${padLeft}" y1="${y.toFixed(1)}" x2="${(padLeft + chartW).toFixed(1)}" y2="${y.toFixed(1)}" stroke="rgba(28,111,102,0.15)" stroke-width="1" />`;
+        }).join("");
+
+        const bars = numeric.map((value, idx) => {
+          const barH = (value / maxValue) * chartH;
+          const x = padLeft + idx * (barW + gap);
+          const y = padTop + chartH - barH;
+          const label = escHtml(labels[idx] ?? `P${idx + 1}`);
+          const valueLabel = `${Math.round(value).toLocaleString()}${unit}`;
+          return `
+            <g>
+              <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(barH, 1).toFixed(1)}" rx="5" fill="${color}" opacity="0.9" />
+              <text x="${(x + barW / 2).toFixed(1)}" y="${(height - 22).toFixed(1)}" text-anchor="middle" class="bar-x">${label}</text>
+              <text x="${(x + barW / 2).toFixed(1)}" y="${Math.max(y - 6, 12).toFixed(1)}" text-anchor="middle" class="bar-v">${escHtml(valueLabel)}</text>
+            </g>
+          `;
+        }).join("");
+
+        return `
+          <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Recommendation chart">
+            ${grid}
+            ${bars}
+          </svg>
+        `;
+      }
+
+      function renderRecommendations(data) {
+        const container = document.getElementById("recommendations");
+        latestRecommendationPayload = data || latestRecommendationPayload;
+        const detailItems = [];
+
+        const addDetail = (type, title, summary, description) => {
+          detailItems.push({
+            type: String(type || "Detail"),
+            title: String(title || "Recommendation"),
+            summary: String(summary || ""),
+            description: String(description || summary || ""),
+          });
+        };
+
+        if (!data) {
+          container.innerHTML = `<div class="rec-empty">
+            <div class="icon">...</div>
+            <p>Enter your location and click "Load Terrain + Weather" to begin.</p>
+          </div>`;
+          addDetail(
+            "Guide",
+            "Start with location",
+            "Load terrain and weather to unlock recommendations.",
+            "Use section 1 to choose a city or coordinates, then click Load Terrain + Weather."
+          );
+          setRecommendationDetails(detailItems);
+          return;
+        }
+
+        if (data.ok === false) {
+          container.innerHTML = `<div class="rec-empty">
+            <div class="icon">!</div>
+            <p>${data.error || "Failed to load data. Please try again."}</p>
+          </div>`;
+          addDetail(
+            "Error",
+            "Could not generate recommendations",
+            data.error || "Request failed.",
+            "Please retry loading data. If this continues, verify the inputs and network access."
+          );
+          setRecommendationDetails(detailItems);
+          return;
+        }
+
+        if (data.data) {
+          const d = data.data;
+          const candidates = Array.isArray(d.candidates) ? d.candidates : [];
+          const topCandidates = candidates.slice(0, 5);
+          let html = "";
+
+          if (d.top_plan) {
+            html += `<div class="rec-hero">
+              <h3>${d.top_plan.description || "Recommended Plan"}</h3>
+              <div class="score-badge">
+                <span>Match Score</span>
+                <span class="percent">${(safeNumber(d.top_plan.score) * 100).toFixed(0)}%</span>
+              </div>
+              <div class="stats-grid">
+                <div class="stat-item">
+                  <div class="label">Annual Yield</div>
+                  <div class="value">${safeNumber(d.total).toLocaleString()} L</div>
+                </div>
+                <div class="stat-item">
+                  <div class="label">Est. Cost</div>
+                  <div class="value">${d.financial?.cost_range || "TBD"}</div>
+                </div>
+                <div class="stat-item">
+                  <div class="label">Confidence</div>
+                  <div class="value">${(safeNumber(d.optimization?.confidence) * 100).toFixed(0)}%</div>
+                </div>
+                <div class="stat-item">
+                  <div class="label">Systems</div>
+                  <div class="value">${d.top_plan.systems?.length || 0}</div>
+                </div>
+              </div>
+            </div>`;
+
+            addDetail(
+              "Top Plan",
+              d.top_plan.description || "Recommended Plan",
+              `Match ${(safeNumber(d.top_plan.score) * 100).toFixed(0)}%`,
+              `Annual yield: ${safeNumber(d.total).toLocaleString()} L\nEstimated cost: ${d.financial?.cost_range || "TBD"}\nConfidence: ${(safeNumber(d.optimization?.confidence) * 100).toFixed(0)}%\nSystems: ${d.top_plan.systems?.join(", ") || "Not specified"}`
+            );
+          }
+
+          if (topCandidates.length) {
+            const labels = topCandidates.map((_, i) => `P${i + 1}`);
+            const scoreValues = topCandidates.map(c => safeNumber(c.score) * 100);
+            const yieldValues = topCandidates.map(c => safeNumber(c.water_annual));
+
+            html += `<div class="rec-section">
+              <h4>Performance Charts</h4>
+              <div class="rec-chart-grid">
+                <article class="rec-chart-card">
+                  <h5 class="rec-chart-title">Plan Score Comparison</h5>
+                  <p class="rec-chart-sub">Top ${labels.length} ranked plans by suitability score.</p>
+                  <div class="rec-chart">${buildBarChartSvg(labels, scoreValues, { color: "#1c6f66", unit: "%" })}</div>
+                </article>
+                <article class="rec-chart-card">
+                  <h5 class="rec-chart-title">Projected Annual Yield</h5>
+                  <p class="rec-chart-sub">Liters/year expected for the same top plans.</p>
+                  <div class="rec-chart">${buildBarChartSvg(labels, yieldValues, { color: "#3b82f6", unit: "L" })}</div>
+                </article>
+              </div>
+            </div>`;
+
+            addDetail(
+              "Chart",
+              "Plan Score Comparison",
+              `Best score ${(Math.max(...scoreValues)).toFixed(0)}%`,
+              `Based on real candidate scores from analysis output. Compared plans: ${labels.join(", ")}.`
+            );
+            addDetail(
+              "Chart",
+              "Projected Annual Yield",
+              `Best yield ${Math.max(...yieldValues).toLocaleString()} L/year`,
+              "Derived from each candidate's water_annual value in analysis data."
+            );
+          }
+
+          if (candidates.length > 0) {
+            html += `<div class="rec-section">
+              <h4>All Plans (Ranked)</h4>
+              <div class="rec-list">`;
+            candidates.slice(0, 8).forEach((cand, i) => {
+              const score = (safeNumber(cand.score) * 100).toFixed(0);
+              html += `<div class="rec-item">
+                <div class="rec-rank">${i + 1}</div>
+                <div class="rec-info">
+                  <strong>${cand.description || "Plan " + (i + 1)}</strong>
+                  <span>Yield: ${safeNumber(cand.water_annual).toLocaleString()}L</span>
+                </div>
+                <div class="rec-score-bar">
+                  <div class="bar-bg"><div class="bar-fill" style="width:${score}%"></div></div>
+                  <span class="percent">${score}%</span>
+                </div>
+              </div>`;
+
+              addDetail(
+                "Ranked Plan",
+                cand.description || `Plan ${i + 1}`,
+                `Score ${score}%`,
+                `Rank: ${i + 1}\nAnnual yield: ${safeNumber(cand.water_annual).toLocaleString()} L\nScore: ${score}%\nSystems: ${cand.systems?.join(", ") || "Not specified"}`
+              );
+            });
+            html += `</div></div>`;
+          }
+
+          if (d.actions && d.actions.length > 0) {
+            html += `<div class="rec-section">
+              <h4>Recommended Actions</h4>
+              <ul class="rec-actions">`;
+            d.actions.forEach((a, i) => {
+              html += `<li>${a}</li>`;
+              addDetail("Action", `Action ${i + 1}`, a, a);
+            });
+            html += `</ul></div>`;
+          }
+
+          if (d.climate) {
+            const climateDetails = [
+              { key: "Annual Rainfall", value: `${d.climate.annual_rain || 0}mm`, desc: "Estimated yearly rainfall for the site." },
+              { key: "Altitude", value: `${d.climate.altitude || 0}m`, desc: "Site elevation that influences runoff behavior." },
+              { key: "Location Type", value: d.climate.coastal ? "Coastal" : "Inland", desc: "General regional context for weather patterns." },
+              { key: "Water Stress", value: d.climate.stress || "Unknown", desc: "Indicates expected water availability pressure." },
+              { key: "Monsoon Dependence", value: `${d.climate.monsoon_dep || 0}%`, desc: "Dependence on monsoon-driven rainfall." },
+              { key: "Data Confidence", value: d.climate.confidence || "Unknown", desc: "Confidence in climate profile quality." },
+            ];
+
+            html += `<div class="rec-section">
+              <h4>Climate Profile</h4>
+              <div class="rec-climate">
+                ${climateDetails.map(item => `<div class="climate-item"><div class="label">${item.key}</div><div class="value">${item.value}</div></div>`).join("")}
+              </div></div>`;
+
+            climateDetails.forEach(item => addDetail("Climate", item.key, item.value, `${item.key}: ${item.value}\n${item.desc}`));
+          }
+
+          if (d.maturity) {
+            html += `<div class="rec-maturity">
+              <strong>System Maturity: ${d.maturity.stars} ${d.maturity.label}</strong>
+            </div>`;
+            addDetail(
+              "Maturity",
+              "System Maturity",
+              `${d.maturity.stars} ${d.maturity.label}`,
+              `${d.maturity.stars} ${d.maturity.label}\nUse this score to estimate implementation readiness.`
+            );
+          }
+
+          container.innerHTML = html;
+          setRecommendationDetails(detailItems);
+          return;
+        }
+
+        if (data.weather) {
+          const w = data.weather;
+          const loc = data.location || {};
+          const current = w.current || {};
+          const forecast = Array.isArray(w.forecast) ? w.forecast.slice(0, 7) : [];
+
+          container.innerHTML = `<div class="rec-hero">
+            <h3>Location Loaded: ${loc.city || "Custom Location"}</h3>
+            <div class="score-badge">
+              <span>Weather Data</span>
+              <span class="percent">${w.confidence || "Ready"}</span>
+            </div>
+            <div class="stats-grid">
+              <div class="stat-item">
+                <div class="label">Current Temp</div>
+                <div class="value">${current.temp?.toFixed(1) || "--"} C</div>
+              </div>
+              <div class="stat-item">
+                <div class="label">Humidity</div>
+                <div class="value">${current.hum?.toFixed(0) || "--"}%</div>
+              </div>
+              <div class="stat-item">
+                <div class="label">Annual Rain</div>
+                <div class="value">${w.annual_rain?.toLocaleString() || "--"}mm</div>
+              </div>
+              <div class="stat-item">
+                <div class="label">Altitude</div>
+                <div class="value">${w.altitude || 0}m</div>
+              </div>
+            </div>
+          </div>`;
+
+          if (forecast.length) {
+            const rainValues = forecast.map(day => safeNumber(day.rain ?? day.precipitation));
+            const labels = forecast.map((_, i) => `D${i + 1}`);
+            container.innerHTML += `<div class="rec-section">
+              <h4>Rainfall Forecast (7 Days)</h4>
+              <div class="rec-chart-grid single">
+                <article class="rec-chart-card">
+                  <h5 class="rec-chart-title">Daily Rainfall</h5>
+                  <p class="rec-chart-sub">Directly from loaded forecast data.</p>
+                  <div class="rec-chart">${buildBarChartSvg(labels, rainValues, { color: "#0ea5e9", unit: "mm" })}</div>
+                </article>
+              </div>
+            </div>`;
+
+            addDetail(
+              "Chart",
+              "Daily Rainfall Forecast",
+              `Peak day ${Math.max(...rainValues).toFixed(1)}mm`,
+              "Chart built from weather.forecast rain/precipitation values for the loaded location."
+            );
+          }
+
+          container.innerHTML += `<div class="rec-section">
+            <h4>Climate Overview</h4>
+            <div class="rec-climate">
+              <div class="climate-item"><div class="label">Annual Rainfall</div><div class="value">${w.annual_rain || 0}mm</div></div>
+              <div class="climate-item"><div class="label">Altitude</div><div class="value">${w.altitude || 0}m</div></div>
+              <div class="climate-item"><div class="label">Location Type</div><div class="value">${w.coastal ? "Coastal" : "Inland"}</div></div>
+              <div class="climate-item"><div class="label">Water Stress</div><div class="value">${w.stress || "Unknown"}</div></div>
+              <div class="climate-item"><div class="label">Monsoon Dependence</div><div class="value">${w.monsoon_dep || 0}%</div></div>
+              <div class="climate-item"><div class="label">Data Source</div><div class="value">${w.source || "Unknown"}</div></div>
+            </div>
+          </div>
+          <div class="rec-section">
+            <h4>Next Steps</h4>
+            <ul class="rec-actions">
+              <li>Enter your property details in Section 2</li>
+              <li>Click "Run Analysis" to get personalized recommendations</li>
+            </ul>
+          </div>`;
+
+          addDetail("Weather", "Current Temperature", `${current.temp?.toFixed(1) || "--"} C`, "Current air temperature.");
+          addDetail("Weather", "Humidity", `${current.hum?.toFixed(0) || "--"}%`, "Current relative humidity.");
+          addDetail("Weather", "Annual Rainfall", `${w.annual_rain || 0}mm`, "Estimated annual rainfall.");
+          addDetail("Weather", "Altitude", `${w.altitude || 0}m`, "Location elevation.");
+          addDetail("Guide", "Enter site inputs", "Fill section 2 to continue.", "Add roof area, land area, soil, and usage details.");
+          addDetail("Guide", "Run analysis", "Generate ranked plans.", "Click Run Analysis to view plan scores, actions, and maturity.");
+          setRecommendationDetails(detailItems);
+          return;
+        }
+
+        container.innerHTML = `<div class="rec-empty">
+          <div class="icon">i</div>
+          <p>Location data loaded. Now enter your property details and run analysis.</p>
+        </div>`;
+        addDetail(
+          "Guide",
+          "Next step",
+          "Enter property details and run analysis.",
+          "Location is ready. Complete section 2 and click Run Analysis."
+        );
+        setRecommendationDetails(detailItems);
+      }
+
+      renderRecommendations(null);
 
       function showOutput(data) {
-        document.getElementById("output").textContent = JSON.stringify(data, null, 2);
+        renderRecommendations(data);
+        const modal = document.getElementById("recModal");
+        if (modal && modal.classList.contains("active")) {
+          renderRecommendationModalList();
+          refreshRecommendationModalLivePanel();
+        }
       }
 
       async function postJson(url, payload) {
@@ -2290,40 +2999,6 @@
           throw new Error(msg);
         }
         return data;
-      }
-
-      function updateRadarStatus(message, ok = true) {
-        const statusEl = document.getElementById("radar-status");
-        if (!statusEl) return;
-        statusEl.textContent = message;
-        statusEl.style.color = ok ? "var(--muted)" : "#b2372b";
-      }
-
-      async function initializeRainRadar(lat, lon) {
-        if (!scene || !terrainGrid) return false;
-        if (rainRadar) {
-          rainRadar.dispose();
-        }
-
-        rainRadar = new LiveRainRadar(scene, camera);
-        const terrainSize = terrainCellSize * Math.max(terrainGS - 1, 1);
-        const success = await rainRadar.initialize(lat, lon, terrainSize);
-
-        if (success) {
-          const shouldShow = document.getElementById("radar-toggle").checked;
-          rainRadar.setVisible(shouldShow);
-          if (shouldShow) {
-            rainRadar.startAnimation();
-            document.getElementById("radar-play-pause").textContent = "Pause Animation";
-          } else {
-            document.getElementById("radar-play-pause").textContent = "Play Animation";
-          }
-          updateRadarStatus(`Radar ready for ${lat.toFixed(3)}, ${lon.toFixed(3)}.`, true);
-          return true;
-        }
-
-        document.getElementById("radar-play-pause").textContent = "Play Animation";
-        return false;
       }
 
       async function fetchDeepHistoricalData(latitude, longitude, years = 5) {
@@ -2838,6 +3513,12 @@
           const data = await postJson("/api/geodata", payload);
           weatherData = data.weather || null;
           waterData = data.water || null;
+          
+          // Update Leaflet map to location
+          if (data.location && leafletMap) {
+            leafletMap.setView([Number(data.location.lat), Number(data.location.lon)], 13, { animate: true });
+          }
+          
           if (data.terrain && data.weather) {
             data.weather.terrain_bounds = {
               lat_min: data.terrain.lat_min,
@@ -2848,9 +3529,6 @@
           }
           rebuildWorld(data.terrain, waterData, weatherData);
           if (weatherTimeline) weatherTimeline.setForecast(data.weather || {});
-          if (data.location) {
-            await initializeRainRadar(Number(data.location.lat), Number(data.location.lon));
-          }
           showOutput(data);
           setStatus(status, "Loaded terrain, water features, and climate data.", true);
         } catch (err) {
@@ -2893,6 +3571,211 @@
           setStatus(status, err.message, false);
         } finally {
           showLoading(false);
+        }
+      });
+
+      function renderRecommendationModalList() {
+        const modalBody = document.getElementById("recModalBody");
+        if (!modalBody) return;
+        if (!recommendationDetailItems.length) {
+          modalBody.innerHTML = `
+            <div id="recLivePanel">${renderRecommendationLivePanelHtml()}</div>
+            <p class="detail-note">No recommendation details are available yet.</p>
+          `;
+          return;
+        }
+
+        const itemsHtml = recommendationDetailItems
+          .map((item, idx) => `
+            <button class="rec-modal-item" data-detail-index="${idx}">
+              <span class="type">${item.type}</span>
+              <p class="title">${item.title}</p>
+              <p class="summary">${item.summary || "Click to view full details."}</p>
+            </button>
+          `)
+          .join("");
+
+        modalBody.innerHTML = `
+          <div id="recLivePanel">${renderRecommendationLivePanelHtml()}</div>
+          <p class="detail-note">Select any item to view full details and description.</p>
+          <div class="rec-modal-list">${itemsHtml}</div>
+        `;
+
+        modalBody.querySelectorAll("[data-detail-index]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const idx = Number(btn.getAttribute("data-detail-index"));
+            renderRecommendationModalDetail(idx);
+          });
+        });
+      }
+
+      function renderRecommendationModalDetail(index) {
+        const modalBody = document.getElementById("recModalBody");
+        if (!modalBody) return;
+        const item = recommendationDetailItems[index];
+        if (!item) {
+          renderRecommendationModalList();
+          return;
+        }
+
+        modalBody.innerHTML = `
+          <div class="rec-modal-detail">
+            <div id="recLivePanel">${renderRecommendationLivePanelHtml()}</div>
+            <button id="recBackBtn" class="rec-back-btn">Back to details</button>
+            <div class="rec-detail-card">
+              <p class="rec-detail-type">${item.type}</p>
+              <h3 class="rec-detail-title">${item.title}</h3>
+              <p class="rec-detail-summary">${item.summary || ""}</p>
+              <p class="rec-detail-description">${item.description || item.summary || ""}</p>
+            </div>
+          </div>
+        `;
+        const backBtn = document.getElementById("recBackBtn");
+        if (backBtn) backBtn.addEventListener("click", renderRecommendationModalList);
+      }
+
+      function getLiveRecommendationSnapshot() {
+        const timeline = weatherTimeline && typeof weatherTimeline.getCurrentWeather === "function"
+          ? weatherTimeline.getCurrentWeather()
+          : null;
+        const current = weatherData?.current || latestRecommendationPayload?.weather?.current || {};
+        const liveTemp = safeNumber(timeline?.temperature_2m, safeNumber(current.temp, 0));
+        const liveHumidity = safeNumber(timeline?.relative_humidity_2m, safeNumber(current.hum, 0));
+        const liveWind = safeNumber(timeline?.wind_speed_10m, safeNumber(current.wind_spd, 0));
+        const livePrecip = safeNumber(timeline?.precipitation, safeNumber(current.rain, 0));
+        const liveCloud = safeNumber(timeline?.cloud_cover, safeNumber(current.cloud, 0));
+        return {
+          temp: liveTemp,
+          humidity: liveHumidity,
+          wind: liveWind,
+          rainRate: livePrecip,
+          cloud: liveCloud,
+          updatedAt: new Date().toLocaleTimeString(),
+        };
+      }
+
+      function buildLiveTrendChart() {
+        const timelineForecast = Array.isArray(weatherTimeline?.forecast) ? weatherTimeline.forecast : [];
+        if (timelineForecast.length) {
+          const start = Math.floor(safeNumber(weatherTimeline?.currentHourIndex, 0));
+          const slice = [];
+          for (let i = 0; i < 8; i++) {
+            const idx = (start + i) % timelineForecast.length;
+            slice.push(timelineForecast[idx]);
+          }
+          const labels = slice.map((_, i) => `H+${i}`);
+          const values = slice.map(row => safeNumber(row?.precipitation, 0));
+          return buildBarChartSvg(labels, values, { color: "#0ea5e9", unit: "mm/h", width: 340, height: 150 });
+        }
+
+        const daily = Array.isArray(weatherData?.forecast) ? weatherData.forecast.slice(0, 7) : [];
+        if (daily.length) {
+          const labels = daily.map((_, i) => `D${i + 1}`);
+          const values = daily.map(row => safeNumber(row?.rain ?? row?.precipitation, 0));
+          return buildBarChartSvg(labels, values, { color: "#0ea5e9", unit: "mm", width: 340, height: 150 });
+        }
+
+        return `<div class="rec-chart-empty">Live rainfall trend unavailable until forecast data is loaded.</div>`;
+      }
+
+      function renderRecommendationLivePanelHtml() {
+        const s = getLiveRecommendationSnapshot();
+        const totalPlans = Array.isArray(latestRecommendationPayload?.data?.candidates)
+          ? latestRecommendationPayload.data.candidates.length
+          : 0;
+        const bestScore = totalPlans
+          ? Math.max(...latestRecommendationPayload.data.candidates.map(c => safeNumber(c?.score, 0))) * 100
+          : 0;
+        return `
+          <section class="rec-live-panel">
+            <div class="rec-live-head">
+              <p class="rec-live-title">Live Recommendation Monitor</p>
+              <p class="rec-live-time">Updated ${s.updatedAt}</p>
+            </div>
+            <div class="rec-live-grid">
+              <article class="rec-live-card">
+                <p class="rec-live-label">Temperature</p>
+                <p class="rec-live-value">${s.temp.toFixed(1)} C</p>
+                <p class="rec-live-sub">Current weather stream</p>
+              </article>
+              <article class="rec-live-card">
+                <p class="rec-live-label">Humidity</p>
+                <p class="rec-live-value">${s.humidity.toFixed(0)}%</p>
+                <p class="rec-live-sub">Relative humidity now</p>
+              </article>
+              <article class="rec-live-card">
+                <p class="rec-live-label">Rain Rate</p>
+                <p class="rec-live-value">${s.rainRate.toFixed(2)} mm/h</p>
+                <p class="rec-live-sub">Timeline/live precipitation</p>
+              </article>
+              <article class="rec-live-card">
+                <p class="rec-live-label">Wind / Cloud</p>
+                <p class="rec-live-value">${s.wind.toFixed(1)} m/s</p>
+                <p class="rec-live-sub">Cloud cover ${s.cloud.toFixed(0)}%</p>
+              </article>
+              <article class="rec-live-card">
+                <p class="rec-live-label">Plan Quality</p>
+                <p class="rec-live-value">${totalPlans ? `${bestScore.toFixed(0)}%` : "--"}</p>
+                <p class="rec-live-sub">${totalPlans ? `${totalPlans} candidates loaded` : "Run analysis for plan metrics"}</p>
+              </article>
+            </div>
+            <div class="rec-live-chart">${buildLiveTrendChart()}</div>
+          </section>
+        `;
+      }
+
+      function refreshRecommendationModalLivePanel() {
+        const modal = document.getElementById("recModal");
+        if (!modal || !modal.classList.contains("active")) return;
+        const livePanel = document.getElementById("recLivePanel");
+        if (!livePanel) return;
+        livePanel.innerHTML = renderRecommendationLivePanelHtml();
+      }
+
+      function startRecommendationModalRefresh() {
+        if (recModalRefreshTimer) clearInterval(recModalRefreshTimer);
+        recModalRefreshTimer = setInterval(refreshRecommendationModalLivePanel, 3000);
+      }
+
+      function stopRecommendationModalRefresh() {
+        if (!recModalRefreshTimer) return;
+        clearInterval(recModalRefreshTimer);
+        recModalRefreshTimer = null;
+      }
+
+      function closeRecommendationsModal() {
+        const modal = document.getElementById("recModal");
+        if (!modal) return;
+        modal.classList.remove("active");
+        stopRecommendationModalRefresh();
+      }
+
+      function openRecommendationsModal() {
+        const modal = document.getElementById("recModal");
+        if (!modal) return;
+        if (modal.classList.contains("active")) return;
+        renderRecommendationModalList();
+        modal.classList.add("active");
+        startRecommendationModalRefresh();
+        refreshRecommendationModalLivePanel();
+
+        document.getElementById("closeRecModal").onclick = function() {
+          closeRecommendationsModal();
+        };
+
+        modal.onclick = function(e) {
+          if (e.target === modal) {
+            closeRecommendationsModal();
+          }
+        };
+      }
+
+      const expandRecBtn = document.getElementById("expandRec");
+      expandRecBtn.addEventListener("click", openRecommendationsModal);
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          const modal = document.getElementById("recModal");
+          if (modal && modal.classList.contains("active")) closeRecommendationsModal();
         }
       });
 
@@ -3045,8 +3928,8 @@
             uSunColor: { value: new THREE.Color("#fff9f0") },
             uAmbientStrength: { value: 0.32 },
             uTime: { value: 0 },
-            uFogDensity: { value: scene.fog?.density || 0.002 },
-            uFogColor: { value: scene.fog?.color || new THREE.Color("#c8d8e4") },
+            uFogDensity: { value: scene?.fog?.density || 0.002 },
+            uFogColor: { value: scene?.fog?.color || new THREE.Color("#c8d8e4") },
             uHeightScale: { value: heightScale },
           },
           vertexShader: `
@@ -3802,7 +4685,7 @@
           }
           const x = (projected.x * w2) + w2;
           const y = -(projected.y * h2) + h2;
-          const dist = camera.position.distanceTo(lb.pos);
+          const dist = camera && camera.position ? camera.position.distanceTo(lb.pos) : 210;
           const maxDist = 210;
           const opacity = dist > maxDist ? 0 : Math.min(1, (maxDist - dist) / (maxDist * 0.34));
           const scale = Math.max(0.7, Math.min(1.2, 100 / dist));
@@ -3885,10 +4768,6 @@
       }
 
       function clearWorld() {
-        if (rainRadar) {
-          rainRadar.dispose();
-          rainRadar = null;
-        }
         clearMapOverlay();
         const systems = ["rainSystem", "windSystem", "lightningSystem", "cloudSystem"];
         for (const key of systems) {
@@ -3978,6 +4857,10 @@
 
       function animate() {
         requestAnimationFrame(animate);
+        
+        // Skip 3D rendering if not initialized
+        if (!threeInitialized || !scene || scene === dummyScene) return;
+        
         const delta = Math.min(sceneState.clock.getDelta(), 0.05);
         elapsed += delta;
         const now = performance.now();
@@ -3993,7 +4876,6 @@
         if (sceneState.lightningSystem) sceneState.lightningSystem.update(delta, sceneState.cloudSystem?.puffs);
         if (waterFlowSimulator) waterFlowSimulator.update(delta, weatherTimeline ? weatherTimeline.getCurrentWeather().temperature_2m : 25);
         if (weatherLayerManager?.syncWithCamera) weatherLayerManager.syncWithCamera();
-        if (rainRadar) rainRadar.update(now);
         for (const mesh of sceneState.riverMeshes || []) {
           if (mesh.material.uniforms?.uTime) mesh.material.uniforms.uTime.value = elapsed;
         }
@@ -4006,14 +4888,14 @@
         updateFog(scene, sceneState.weatherData?.current?.weather_code ?? 0, sceneState.isRaining, normalizeWeatherSnapshot(sceneState.weatherData?.current || {}).precipitation, sceneState.cloudCover);
         if (terrainShaderMat?.uniforms) {
           terrainShaderMat.uniforms.uTime.value = elapsed;
-          terrainShaderMat.uniforms.uFogDensity.value = scene.fog?.density ?? 0.002;
-          terrainShaderMat.uniforms.uFogColor.value.copy(scene.fog?.color || new THREE.Color("#c8d8e4"));
+          terrainShaderMat.uniforms.uFogDensity.value = scene?.fog?.density ?? 0.002;
+          terrainShaderMat.uniforms.uFogColor.value.copy(scene?.fog?.color || new THREE.Color("#c8d8e4"));
         }
         if (ctrl) ctrl.update();
         if (catchmentMesh) catchmentMesh.material.opacity = 0.15 + Math.sin(elapsed * 2) * 0.08;
         updateLabels();
         if (sceneState.composer) sceneState.composer.render();
-        else renderer.render(scene, camera);
+        else if (renderer && scene && camera && threeInitialized) renderer.render(scene, camera);
         frameCount++;
         if (frameCount % 60 === 0) {
           const tris = renderer.info.render.triangles;
@@ -4035,7 +4917,7 @@
           data: { pos: [-half * 0.5, 40, -half * 0.5], target: [-half * 0.7, 15, -half * 0.7] },
         };
         const v = views[name];
-        if (!v) return;
+        if (!v || !camera || !ctrl) return;
         const startPos = camera.position.clone();
         const endPos = new THREE.Vector3(...v.pos);
         const startTarget = ctrl.target.clone();
@@ -4077,3 +4959,5 @@
     </script>
   </body>
 </html>
+
+
